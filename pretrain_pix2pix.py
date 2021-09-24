@@ -180,6 +180,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate):
     epoch = 0
     best_loss = float('inf')
     for epoch in range(epoch, n_epoch):
+        model.update_learning_rate()
         train(model, train_dataloader, epoch, n_epoch, writer=writer)
         loss = val(model, test_dataloader, epoch, n_epoch, writer=writer)
 

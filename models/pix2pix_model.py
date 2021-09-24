@@ -91,6 +91,8 @@ class Pix2PixModel(BaseModel):
         self.fake_B = self.netG(self.real_A)  # G(A)
         self.fake_B = self.fake_B * 255
 
+        return self.fake_B
+
     def backward_D(self):
         """Calculate GAN loss for the discriminator"""
         # Fake; stop backprop to the generator by detaching fake_B
@@ -118,7 +120,7 @@ class Pix2PixModel(BaseModel):
         self.loss_G.backward()
 
     def optimize_parameters(self):
-        self.forward()                   # compute fake images: G(A)
+        _ = self.forward()                   # compute fake images: G(A)
         # update D
         self.set_requires_grad(self.netD, True)  # enable backprop for D
         self.optimizer_D.zero_grad()     # set D's gradients to zero
@@ -153,3 +155,5 @@ class Pix2PixModel(BaseModel):
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) * self.opt['lambda_L1']
         # combine loss and calculate gradients
         self.loss_G = self.loss_G_GAN + self.loss_G_L1
+
+        return self.loss_D, self.loss_G

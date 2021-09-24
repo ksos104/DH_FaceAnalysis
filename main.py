@@ -3,6 +3,7 @@
     2021.08.10
 '''
 import torch
+from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
 from datasets import FaceDataset
 from utils.transforms import Transpose
@@ -12,7 +13,10 @@ import os
 from skimage.measure import compare_ssim
 import numpy as np
 from models import EAGR, create_model
+from torch.optim import lr_scheduler
 
+CELoss = CrossEntropyLoss()
+l2Loss = torch.nn.MSELoss()
 
 def get_arguments():
     parser = argparse.ArgumentParser()
@@ -20,7 +24,7 @@ def get_arguments():
     parser.add_argument('--is_test', help='True / False (bool)', default=False, dest='is_test')
     parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=500, dest='n_epoch')
-    parser.add_argument('--lr', help='Learning rate', default=1e-4, dest='learning_rate')
+    parser.add_argument('--lr', help='Learning rate', default=1e-3, dest='learning_rate')
 
     root = parser.parse_args().root
     is_test = parser.parse_args().is_test
@@ -31,42 +35,77 @@ def get_arguments():
     return root, is_test, batch_size, n_epoch, learning_rate
 
 
-def train(model, dataloader, optimizer, epoch, n_epoch):
-    model.train()
+def train(model_Dparse, model_RGBparse, model_RGBD, dataloader, optimizer_Dparse, optimizer_RGBparse, epoch, n_epoch):
+    model_Dparse.train()
+    model_RGBparse.train()
     
-    for n_iter, (images, targets) in enumerate(dataloader):
+    totalLosses = 0
+    for n_iter, (images, (segments, edges, depths)) in enumerate(dataloader):
         if torch.cuda.is_available():
             images = images.cuda()
-            targets_seg = targets[0].cuda()
-            targets_dep = targets[1].cuda()
+            segments = segments.cuda()
+            edges = edges.cuda()
+            depths = depths.cuda()
 
-        outputs = model(images)
-        loss = cal_depth_loss(outputs[0], targets_dep)
+        inputs = {'A': images, 'B': depths}
+        model_RGBD.set_input(inputs)
+        output_RGBD = model_RGBD.forward()
+        output_RGBD_Dparse = model_Dparse(output_RGBD)
+        output_Dparse = model_Dparse(depths)
+        output_RGBparse = model_RGBparse(images)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        MLloss = l2Loss(output_RGBparse, output_Dparse)
+        E2Eloss = CELoss(output_RGBD_Dparse, segments)
+        RGBparseLoss = CELoss(output_RGBparse, segments)
+        DparseLoss = CELoss(output_Dparse, segments)
+        _, DTloss = model_RGBD.cal_losses()
 
-        print('Epoch: {:03d}/{:03d}, Iter: {:03d}/{:03d}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss))
+        totalLoss = MLloss + E2Eloss + 0.5 * (RGBparseLoss + DparseLoss) + DTloss
+
+        optimizer_Dparse.zero_grad()
+        optimizer_RGBparse.zero_grad()
+        model_RGBD.optimizer_G.zero_grad()
+        totalLoss.backward()
+        optimizer_Dparse.step()
+        optimizer_RGBparse.step()
+        model_RGBD.optimizer_G.step()
 
 
-def val(model, dataloader, epoch, n_epoch):
-    model.eval()
+        print('Epoch: {:03d}/{:03d}, Iter: {:03d}/{:03d}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, totalLoss))
+
+
+def val(model_Dparse, model_RGBparse, model_RGBD, dataloader, epoch, n_epoch):
+    model_Dparse.eval()
+    model_RGBparse.eval()
+    model_RGBD.eval()
     with torch.no_grad():
-        losses = 0
-        for n_iter, (images, targets) in enumerate(dataloader):
+        totalLosses = 0
+        for n_iter, (images, segments, edges, depths) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                targets_seg = targets[0].cuda()
-                targets_dep = targets[1].cuda()
+                segments = segments.cuda()
+                edges = edges.cuda()
+                depths = depths.cuda()
 
-            outputs = model(images)
-            loss = cal_depth_loss(outputs[0], targets_dep)
-            losses += loss
+            inputs = {'A': images, 'B': depths}
+            model_RGBD.set_input(inputs)
+            output_RGBD = model_RGBD.forward()
+            output_RGBD_Dparse = model_Dparse(output_RGBD)
+            output_Dparse = model_Dparse(depths)
+            output_RGBparse = model_RGBparse(images)
 
-            print('Epoch: {:03d}/{:03d}, Iter: {:03d}/{:03d}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss))
+            MLloss = l2Loss(output_RGBparse, output_Dparse)
+            E2Eloss = CELoss(output_RGBD_Dparse, segments)
+            RGBparseLoss = CELoss(output_RGBparse, segments)
+            DparseLoss = CELoss(output_Dparse, segments)
+            _, DTloss = model_RGBD.cal_losses()
 
-        avg_loss = losses / n_iter
+            totalLoss = MLloss + E2Eloss + 0.5 * (RGBparseLoss + DparseLoss) + DTloss
+            totalLosses += totalLoss
+
+            print('Epoch: {:03d}/{:03d}, Iter: {:03d}/{:03d}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, totalLoss))
+
+        avg_loss = totalLosses / n_iter
 
     return avg_loss
 
@@ -89,10 +128,25 @@ def main(root, is_test, batch_size, n_epoch, learning_rate):
     model_RGBparse = EAGR()
     model_RGBD = create_model()
 
+    continue_train = False
+    load_iter = 0
+    epoch = 'latest'
+    verbose = False
+
+    lr_policy = 'linear'
+    epoch_count = 1
+    n_epochs = n_epoch
+    n_epochs_decay = n_epoch
+    lr_decay_iters = 50
+
+    model_RGBD.setup(continue_train=continue_train, load_iter=load_iter, epoch=epoch, verbose=verbose,
+                lr_policy=lr_policy, epoch_count=epoch_count, n_epochs=n_epochs, n_epochs_decay=n_epochs_decay,
+                lr_decay_iters=lr_decay_iters)
+
     if torch.cuda.is_available():
         model_Dparse = model_Dparse.cuda()
         model_RGBparse = model_RGBparse.cuda()
-        model_RGBD = model_RGBD.cuda()
+        # model_RGBD = model_RGBD.cuda()
     print("Model Structure: ", model_Dparse, "\n\n")
     print("Model Structure: ", model_RGBparse, "\n\n")
     print("Model Structure: ", model_RGBD, "\n\n")
@@ -100,6 +154,12 @@ def main(root, is_test, batch_size, n_epoch, learning_rate):
     lr = learning_rate
     optimizer_Dparse = torch.optim.Adam(model_Dparse.parameters(), lr=lr)
     optimizer_RGBparse = torch.optim.Adam(model_RGBparse.parameters(), lr=lr)
+    
+    def lambda_rule(epoch):
+        lr_l = 1.0 - max(0, epoch + epoch_count - n_epochs) / float(n_epochs_decay + 1)
+        return lr_l
+    scheduler_Dparse = lr_scheduler.LambdaLR(optimizer_Dparse, lr_lambda=lambda_rule)
+    scheduler_RGBparse = lr_scheduler.LambdaLR(optimizer_RGBparse, lr_lambda=lambda_rule)
 
     model_Dparse_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', load_Dparse, 'Dparse')
     model_Dparse_path = os.path.join(model_Dparse_root, os.listdir(model_Dparse_root)[-1])
@@ -124,9 +184,12 @@ def main(root, is_test, batch_size, n_epoch, learning_rate):
     epoch = 0
     best_loss = float('inf')
     for epoch in range(epoch, n_epoch):
+        model_RGBD.update_learning_rate()
+        scheduler_Dparse.step()
+        scheduler_RGBparse.step()
         if not is_test:
-            train(model, train_dataloader, optimizer, epoch, n_epoch)
-        loss = val(model, test_dataloader, epoch, n_epoch)
+            train(model_Dparse, model_RGBparse, model_RGBD, train_dataloader, optimizer_Dparse, optimizer_RGBparse, epoch, n_epoch)
+        loss = val(model_Dparse, model_RGBparse, model_RGBD, test_dataloader, epoch, n_epoch)
 
         if loss < best_loss:
             print("Best Loss: {:.4f}".format(loss))
@@ -134,8 +197,14 @@ def main(root, is_test, batch_size, n_epoch, learning_rate):
             torch.save(
                 {
                     'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'opt_state_dict': optimizer.state_dict()
+                    'model_Dparse_state_dict': model_Dparse.state_dict(),
+                    'model_RGBparse_state_dict': model_RGBparse.state_dict(),
+                    'model_RGBD_G_state_dict': model_RGBD.netG.state_dict(),
+                    'model_RGBD_D_state_dict': model_RGBD.netD.state_dict(),
+                    'opt_Dparse_state_dict': optimizer_Dparse.state_dict(),
+                    'opt_RGBparse_state_dict': optimizer_RGBparse.state_dict(),
+                    'opt_RGBD_G_state_dict': model_RGBD.optimizers[0].state_dict(),
+                    'opt_RGBD_D_state_dict': model_RGBD.optimizers[1].state_dict()
                 },
                 os.path.join(model_save_pth, dir_name, 'checkpoint.ckpt')
             )
