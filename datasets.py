@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import torch
 from utils.transforms import *
+import random
 
 class FaceDataset(Dataset):
     def __init__(self, root, mode, transform=None):
@@ -16,6 +17,8 @@ class FaceDataset(Dataset):
         self.transform = transform
         self.aspect_ratio = 1
         self.crop_size = [512, 512]
+        self.scale_factor = 0.25
+        self.rotation_factor = 30
         
         self.imgs = os.listdir(os.path.join(self.root, self.mode, 'images'))
         self.seg_list = os.listdir(os.path.join(self.root, self.mode, 'segments'))
@@ -47,18 +50,25 @@ class FaceDataset(Dataset):
         file_name = os.path.splitext(self.imgs[idx])[0] + '.png'
         depth_name = os.path.splitext(self.imgs[idx])[0] + '_depth.npy'
         segment_path = os.path.join(self.root, self.mode, 'segments', file_name)
-        edge_path = os.path.join(self.root, self.mode, 'edges', file_name)
+        # edge_path = os.path.join(self.root, self.mode, 'edges', file_name)
         depth_path = os.path.join(self.root, self.mode, 'depth_npy', depth_name)
 
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         segment = cv2.imread(segment_path, cv2.IMREAD_GRAYSCALE)
-        edge = cv2.imread(edge_path, cv2.IMREAD_GRAYSCALE)
+        # edge = cv2.imread(edge_path, cv2.IMREAD_GRAYSCALE)
         depth = np.load(depth_path)
         depth = np.stack([depth,depth,depth], axis=-1)
 
         h, w, _ = img.shape
         center, s = self._box2cs([0, 0, w - 1, h - 1])
         r = 0
+
+        # if self.mode == 'train':
+        #     sf = self.scale_factor
+        #     rf = self.rotation_factor
+        #     s = s * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
+        #     r = np.clip(np.random.randn() * rf, -rf * 2, rf * 2) \
+        #         if random.random() <= 0.6 else 0
 
         trans = get_affine_transform(center, s, r, self.crop_size)
         img = cv2.warpAffine(
@@ -68,14 +78,14 @@ class FaceDataset(Dataset):
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(0, 0, 0))
-        edge = cv2.warpAffine(
-            edge,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
-        edge[np.where(edge != 0)] = 1
+        # edge = cv2.warpAffine(
+        #     edge,
+        #     trans,
+        #     (int(self.crop_size[1]), int(self.crop_size[0])),
+        #     flags=cv2.INTER_LINEAR,
+        #     borderMode=cv2.BORDER_CONSTANT,
+        #     borderValue=(0, 0, 0))
+        # edge[np.where(edge != 0)] = 1
         segment = cv2.warpAffine(
             segment,
             trans,
@@ -93,8 +103,8 @@ class FaceDataset(Dataset):
 
         img = torch.Tensor(img).permute(2,0,1)
         segment = torch.Tensor(segment).unsqueeze(0)
-        edge = torch.Tensor(edge).unsqueeze(0)
+        # edge = torch.Tensor(edge).unsqueeze(0)
         depth = torch.Tensor(depth).permute(2,0,1)
 
-        return img, (segment, edge, depth)
-        # return img, (torch.Tensor([0]), torch.Tensor([0]), depth)
+        # return img, (segment, edge, depth)
+        return img, (segment, torch.Tensor([0]), depth)

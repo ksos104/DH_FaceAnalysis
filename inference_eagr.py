@@ -59,15 +59,25 @@ def get_arguments():
 
 
 def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 512]
-    miou = np.zeros((10))
+    # miou = np.zeros((10))
+    miou = 0
     for idx in range(1,11):              ## background 제외
-        u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
-        o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        if idx == 3 or idx == 5 or idx == 9:
+            continue
+        elif idx == 2 or idx == 4:
+            u = torch.sum(torch.where(((result==idx)+(result==idx+1)) + ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
+            o = torch.sum(torch.where(((result==idx)+(result==idx+1)) * ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
+        elif idx == 7:
+            u = torch.sum(torch.where(((result==idx)+(result==idx+2)) + ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
+            o = torch.sum(torch.where(((result==idx)+(result==idx+2)) * ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
+        else:
+            u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+            o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
         iou = o / u
-        miou[idx-1] += iou
+        # miou[idx-1] += iou
+        miou += iou
 
-    return miou
-
+    return miou / 7
 
 
 def inference(root):
@@ -89,7 +99,7 @@ def inference(root):
     model.eval()
     with torch.no_grad():
         avg_time = 0
-        avg_miou = np.zeros((10))
+        avg_miou = 0
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
