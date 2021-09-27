@@ -37,9 +37,11 @@ label_to_color = {
     10: [ 70,130,180]
     }
 
+
 criterion = CriterionCrossEntropyEdgeParsing_boundary_attention_loss()
 if torch.cuda.is_available():
     criterion = criterion.cuda()
+
 
 def get_arguments():
     parser = argparse.ArgumentParser()
@@ -56,6 +58,18 @@ def get_arguments():
     return root, batch_size, n_epoch, learning_rate
 
 
+def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 512]
+    miou = np.zeros((10))
+    for idx in range(1,11):              ## background 제외
+        u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        iou = o / u
+        miou[idx-1] += iou
+
+    return miou
+
+
+
 def inference(root):
     test_dataset = FaceDataset(root, 'test')
     dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=torch.cuda.is_available())
@@ -66,14 +80,16 @@ def inference(root):
         model = model.cuda()
     print("Model Structure: ", model, "\n\n")
 
-    model_dir = '2021-09-02_19-34'
-    model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir, 'Dparse')
+    model_dir = '2021-09-05_13-33'
+    model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir, 'RGBparse')
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     model.eval()
     with torch.no_grad():
+        avg_time = 0
+        avg_miou = np.zeros((10))
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
@@ -81,14 +97,18 @@ def inference(root):
                 edges = infos[1].long().cuda()
                 depths = infos[2].cuda()
 
-            input = 'depth'
+            import time
+            start = time.time()
+            input = 'rgb'
             if input == 'depth':
                 outputs = model(depths)
             elif input == 'rgb':
                 outputs = model(images)
+            end = time.time()
+            avg_time += end - start
             loss = criterion(outputs, [segments, edges])
 
-            scale_parse = F.upsample(input=outputs[0], size=(473, 473), mode='bilinear') # parsing
+            scale_parse = F.upsample(input=outputs[0], size=(512, 512), mode='bilinear') # parsing
             result_parse = torch.argmax(scale_parse, dim=1).squeeze()
             result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
             # cv2.imshow('result', result_parse.cpu().numpy())
@@ -99,6 +119,9 @@ def inference(root):
             images = images.cpu().squeeze().permute(1,2,0)
             result_parse = result_parse.cpu().squeeze().permute(1,2,0)
 
+            miou = cal_miou(result_parse[...,0], segments.squeeze().cpu())
+            avg_miou += miou
+
             seg_color = np.zeros(result_parse.shape)
             for key in label_to_color.keys():
                 seg_color[result_parse[:,:,0] == key] = label_to_color[key]
@@ -107,10 +130,12 @@ def inference(root):
             blended = blended.type(torch.uint8)
             # blended = cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
 
-            plt.imshow(blended)
-            plt.show()
+            # plt.imshow(blended)
+            # plt.show()
 
             print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
+        print("avg_time: ", avg_time / 100)
+        print("avg_miou\n", avg_miou / 100)
 
 if __name__ == '__main__':
     root, _, _, _ = get_arguments()

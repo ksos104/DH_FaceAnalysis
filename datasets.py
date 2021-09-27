@@ -56,7 +56,6 @@ class FaceDataset(Dataset):
         depth = np.load(depth_path)
         depth = np.stack([depth,depth,depth], axis=-1)
 
-        # _, h, w = img.shape
         h, w, _ = img.shape
         center, s = self._box2cs([0, 0, w - 1, h - 1])
         r = 0
@@ -98,3 +97,4 @@ class FaceDataset(Dataset):
         depth = torch.Tensor(depth).permute(2,0,1)
 
         return img, (segment, edge, depth)
+        # return img, (torch.Tensor([0]), torch.Tensor([0]), depth)
