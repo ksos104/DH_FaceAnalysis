@@ -25,7 +25,7 @@ NUM_CLASSES = 11
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\face_seg\HELENstar\helenstar_release', dest='root')
+    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=8, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
@@ -64,7 +64,7 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses):
         if torch.cuda.is_available():
             images = images.cuda()
             segments = infos[0].long().cuda()
-            depths = infos[2].cuda()
+            depths = infos[1].cuda()
 
         if input == 'depth':
             outputs, outputs16, outputs32 = model(depths)
@@ -94,7 +94,7 @@ def val(model, dataloader, epoch, n_epoch, input, writer, Losses):
             if torch.cuda.is_available():
                 images = images.cuda()
                 segments = infos[0].long().cuda()
-                depths = infos[2].cuda()
+                depths = infos[1].cuda()
 
             if input == 'depth':
                 outputs, outputs16, outputs32 = model(depths)
@@ -120,7 +120,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
 
     train_dataset = FaceDataset(root, 'train')
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
-    test_dataset = FaceDataset(root, 'test')
+    test_dataset = FaceDataset(root, 'val')
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
 
     model_save_pth = os.path.join('pretrained', now)

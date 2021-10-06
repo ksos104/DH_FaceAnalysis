@@ -26,7 +26,7 @@ import numpy as np
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\face_depth\CelebA-HQ', dest='root')
+    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-3, dest='learning_rate')
@@ -50,8 +50,7 @@ def train(model, dataloader, epoch, n_epoch, writer):
         if torch.cuda.is_available():
             images = images.cuda()
             segments = infos[0].long().cuda()
-            edges = infos[1].long().cuda()
-            depths = infos[2].cuda()
+            depths = infos[1].cuda()
 
         inputs = {'A': images, 'B': depths}
 
@@ -63,14 +62,6 @@ def train(model, dataloader, epoch, n_epoch, writer):
         Gl1_losses += loss['G_L1']
         Dreal_losses += loss['D_real']
         Dfake_losses += loss['D_fake']
-
-        # outputs = model(inputs)
-        # loss = criterion(outputs, [segments, edges])
-        # losses += loss
-
-        # optimizer.zero_grad()
-        # loss.backward()
-        # optimizer.step()
 
         print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
 
@@ -99,8 +90,7 @@ def val(model, dataloader, epoch, n_epoch, writer):
             if torch.cuda.is_available():
                 images = images.cuda()
                 segments = infos[0].long().cuda()
-                edges = infos[1].long().cuda()
-                depths = infos[2].cuda()
+                depths = infos[1].cuda()
 
             inputs = {'A': images, 'B': depths}
 
@@ -113,14 +103,6 @@ def val(model, dataloader, epoch, n_epoch, writer):
             Gl1_losses += loss['G_L1']
             Dreal_losses += loss['D_real']
             Dfake_losses += loss['D_fake']
-
-            # if input == 'depth':
-            #     outputs = model(depths)
-            # elif input == 'rgb':
-            #     outputs = model(images)
-            # loss = criterion(outputs, [segments, edges])
-            # losses += loss
-
 
             print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
 
@@ -169,13 +151,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate):
                 lr_policy=lr_policy, epoch_count=epoch_count, n_epochs=n_epochs, n_epochs_decay=n_epochs_decay,
                 lr_decay_iters=lr_decay_iters)
 
-    # if torch.cuda.is_available():
-    #     model = model.cuda()
     print("Model Structure: ", model, "\n\n")
-
-    # lr = learning_rate
-    # optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=1, gamma=0.9975)     # polynomial learning rate decay
 
     epoch = 0
     best_loss = float('inf')

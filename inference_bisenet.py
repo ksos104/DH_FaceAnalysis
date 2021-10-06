@@ -44,9 +44,9 @@ label_to_color = {
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\face_seg\HELENstar\helenstar_release', dest='root')
-    parser.add_argument('--batch_size', help='Batch size (int)', default=4, dest='batch_size')
-    parser.add_argument('--epoch', help='Number of epoch (int)', default=400, dest='n_epoch')
-    parser.add_argument('--lr', help='Learning rate', default=1e-3, dest='learning_rate')
+    parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
+    parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
+    parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
 
     root = parser.parse_args().root
     batch_size = parser.parse_args().batch_size
@@ -60,6 +60,9 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
     # miou = np.zeros((10))
     miou = 0
     for idx in range(1,11):              ## background 제외
+        '''
+            오른쪽 왼쪽 구분 X
+        '''
         # if idx == 3 or idx == 5 or idx == 9:
         #     continue
         # elif idx == 2 or idx == 4:
@@ -72,6 +75,9 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
         #     u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
         #     o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
         
+        '''
+            오른쪽 왼쪽 구분 O
+        '''
         u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
         o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
         try:
@@ -94,7 +100,7 @@ def inference(root):
         model = model.cuda()
     print("Model Structure: ", model, "\n\n")
 
-    model_dir = '2021-09-27_22-35'
+    model_dir = '2021-09-28_20-32'
     model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir)
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
@@ -102,6 +108,7 @@ def inference(root):
     
     score_thres = 0.7
     n_min = 1 * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16
+    # n_min = 1 * 1080 * 2048//16      ## batch_size * crop_size[0] * crop_size[1]//16
     ignore_idx = -100
 
     LossP = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
@@ -116,7 +123,7 @@ def inference(root):
             if torch.cuda.is_available():
                 images = images.cuda()
                 segments = infos[0].long().cuda()
-                depths = infos[2].cuda()
+                depths = infos[1].cuda()
 
             import time
             start = time.time()
@@ -130,34 +137,31 @@ def inference(root):
             segments = segments.squeeze(dim=1)
             loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
 
-            scale_parse = F.upsample(input=outputs.unsqueeze(dim=1)[0], size=(512, 512), mode='bilinear') # parsing
-            result_parse = torch.argmax(scale_parse, dim=1).squeeze()
-            result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
-            # cv2.imshow('result', result_parse.cpu().numpy())
-            # cv2.waitKey(0)
+            # scale_parse = F.upsample(input=outputs.unsqueeze(dim=1)[0], size=(512, 512), mode='bilinear') # parsing
+            # result_parse = torch.argmax(scale_parse, dim=1).squeeze()
+            # result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
 
-            alpha = 0.5
+            # alpha = 0
 
-            images = images.cpu().squeeze().permute(1,2,0)
-            result_parse = result_parse.cpu().squeeze().permute(1,2,0)
+            # images = images.cpu().squeeze().permute(1,2,0)
+            # result_parse = result_parse.cpu().squeeze().permute(1,2,0)
 
-            miou = cal_miou(result_parse[...,0], segments.squeeze().cpu())
-            avg_miou += miou
+            # miou = cal_miou(result_parse[...,0], segments.squeeze().cpu())
+            # avg_miou += miou
 
-            seg_color = np.zeros(result_parse.shape)
-            for key in label_to_color.keys():
-                seg_color[result_parse[:,:,0] == key] = label_to_color[key]
+            # seg_color = np.zeros(result_parse.shape)
+            # for key in label_to_color.keys():
+            #     seg_color[result_parse[:,:,0] == key] = label_to_color[key]
 
-            blended = (images * alpha) + (seg_color * (1 - alpha))
-            blended = blended.type(torch.uint8)
-            # blended = cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
+            # blended = (images * alpha) + (seg_color * (1 - alpha))
+            # blended = blended.type(torch.uint8)
 
             # plt.imshow(blended)
             # plt.show()
 
             print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
-        print("avg_time: ", avg_time / 100)
-        print("avg_miou\n", avg_miou / 100)
+        print("avg_time: ", avg_time / n_iter)
+        print("avg_miou\n", avg_miou / n_iter)
 
 if __name__ == '__main__':
     root, _, _, _ = get_arguments()

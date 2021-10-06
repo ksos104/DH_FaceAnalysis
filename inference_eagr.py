@@ -46,8 +46,8 @@ if torch.cuda.is_available():
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\face_seg\HELENstar\helenstar_release', dest='root')
-    parser.add_argument('--batch_size', help='Batch size (int)', default=4, dest='batch_size')
-    parser.add_argument('--epoch', help='Number of epoch (int)', default=400, dest='n_epoch')
+    parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
+    parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-3, dest='learning_rate')
 
     root = parser.parse_args().root
@@ -62,17 +62,19 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
     # miou = np.zeros((10))
     miou = 0
     for idx in range(1,11):              ## background 제외
-        if idx == 3 or idx == 5 or idx == 9:
-            continue
-        elif idx == 2 or idx == 4:
-            u = torch.sum(torch.where(((result==idx)+(result==idx+1)) + ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
-            o = torch.sum(torch.where(((result==idx)+(result==idx+1)) * ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
-        elif idx == 7:
-            u = torch.sum(torch.where(((result==idx)+(result==idx+2)) + ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
-            o = torch.sum(torch.where(((result==idx)+(result==idx+2)) * ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
-        else:
-            u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
-            o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        # if idx == 3 or idx == 5 or idx == 9:
+        #     continue
+        # elif idx == 2 or idx == 4:
+        #     u = torch.sum(torch.where(((result==idx)+(result==idx+1)) + ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
+        #     o = torch.sum(torch.where(((result==idx)+(result==idx+1)) * ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
+        # elif idx == 7:
+        #     u = torch.sum(torch.where(((result==idx)+(result==idx+2)) + ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
+        #     o = torch.sum(torch.where(((result==idx)+(result==idx+2)) * ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
+        # else:
+        #     u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        #     o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
         iou = o / u
         # miou[idx-1] += iou
         miou += iou
@@ -91,7 +93,7 @@ def inference(root):
     print("Model Structure: ", model, "\n\n")
 
     model_dir = '2021-09-05_13-33'
-    model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir, 'RGBparse')
+    model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir, 'RGBParse')
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -124,7 +126,7 @@ def inference(root):
             # cv2.imshow('result', result_parse.cpu().numpy())
             # cv2.waitKey(0)
 
-            alpha = 0.5
+            alpha = 0
 
             images = images.cpu().squeeze().permute(1,2,0)
             result_parse = result_parse.cpu().squeeze().permute(1,2,0)
@@ -140,12 +142,12 @@ def inference(root):
             blended = blended.type(torch.uint8)
             # blended = cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
 
-            # plt.imshow(blended)
-            # plt.show()
+            plt.imshow(blended)
+            plt.show()
 
             print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
-        print("avg_time: ", avg_time / 100)
-        print("avg_miou\n", avg_miou / 100)
+        print("avg_time: ", avg_time / n_iter)
+        print("avg_miou\n", avg_miou / n_iter)
 
 if __name__ == '__main__':
     root, _, _, _ = get_arguments()

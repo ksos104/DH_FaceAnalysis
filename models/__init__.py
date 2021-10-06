@@ -84,6 +84,7 @@ def create_model(model_save_pth):
 
     gan_mode = 'vanilla'
     lr = 1e-3
+    lr_policy = 'linear'
     beta1 = 0.5
     lambda_L1 = 100
 
@@ -91,6 +92,6 @@ def create_model(model_save_pth):
     instance = Pix2PixModel(gpu_ids=gpu_ids, isTrain=isTrain, model_save_pth=model_save_pth,
                             input_nc=input_nc, output_nc=output_nc, ngf=ngf, ndf=ndf, netD=netD, netG=netG,
                             n_layers_D=n_layers_D, norm=norm, init_type=init_type, init_gain=init_gain,
-                            gan_mode=gan_mode, lr=lr, beta1=beta1, lambda_L1=lambda_L1)
+                            gan_mode=gan_mode, lr=lr, lr_policy=lr_policy, beta1=beta1, lambda_L1=lambda_L1)
     print("model [%s] was created" % type(instance).__name__)
     return instance

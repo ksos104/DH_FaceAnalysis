@@ -22,7 +22,7 @@ import numpy as np
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\face_depth\CelebA-HQ', dest='root')
+    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
 
     root = parser.parse_args().root
@@ -44,7 +44,7 @@ def val(model, dataloader, epoch):
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                depths = infos[2].cuda()
+                depths = infos[1].cuda()
 
             inputs = {'A': images, 'B': depths}
 
@@ -68,8 +68,8 @@ def val(model, dataloader, epoch):
 
             print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, 1, n_iter, 0, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
 
-        print("avg_time: ", avg_time / 149)
-        print("avg_l1: ", avg_l1 / 149)
+        print("avg_time: ", avg_time / n_iter)
+        print("avg_l1: ", avg_l1 / n_iter)
 
         avg_loss = (Ggan_losses + Gl1_losses) / n_iter
         Ggan_avg_loss = Ggan_losses / n_iter
@@ -82,7 +82,7 @@ def val(model, dataloader, epoch):
 
 def inference(root, batch_size):
     test_dataset = FaceDataset(root, 'test')
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=torch.cuda.is_available())
 
     model = create_model('.')
 
@@ -103,7 +103,7 @@ def inference(root, batch_size):
 
     print("Model Structure: ", model, "\n\n")
 
-    model_dir = '2021-09-16_13-32'
+    model_dir = '2021-09-28_20-40'
     model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir)
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
