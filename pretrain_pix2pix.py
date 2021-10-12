@@ -126,7 +126,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate):
 
     train_dataset = FaceDataset(root, 'train')
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
-    test_dataset = FaceDataset(root, 'test')
+    test_dataset = FaceDataset(root, 'val')
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
 
     # Depth-to-parsing Network

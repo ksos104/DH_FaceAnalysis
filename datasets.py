@@ -62,23 +62,30 @@ class FaceDataset(Dataset):
         depth = np.stack([depth,depth,depth], axis=-1)
         normal = cv2.imread(normal_path, cv2.IMREAD_COLOR)
 
+        '''
+            CelebA dataset
+                image (depth, normal) size : 1024 x 1024
+                segment size : 512 x 512
+
+            Resize to 512 x 512
+        '''
+        seg_h, seg_w = segment.shape
+        img = cv2.resize(img, dsize=(seg_h, seg_w))
+        depth = cv2.resize(depth, dsize=(seg_h, seg_w))
+        normal = cv2.resize(normal, dsize=(seg_h, seg_w))
+
         h, w, _ = img.shape
         center, s = self._box2cs([0, 0, w - 1, h - 1])
         r = 0
 
-        seg_h, seg_w = segment.shape
-        seg_center, seg_s = self._box2cs([0, 0, seg_w - 1, seg_h - 1])
-        seg_r = 0
-
-        # if self.mode == 'train':
-        #     sf = self.scale_factor
-        #     rf = self.rotation_factor
-        #     s = s * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
-        #     r = np.clip(np.random.randn() * rf, -rf * 2, rf * 2) \
-        #         if random.random() <= 0.6 else 0
+        if self.mode == 'train':
+            sf = self.scale_factor
+            rf = self.rotation_factor
+            s = s * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
+            r = np.clip(np.random.randn() * rf, -rf * 2, rf * 2) \
+                if random.random() <= 0.6 else 0
 
         trans = get_affine_transform(center, s, r, self.crop_size)
-        seg_trans = get_affine_transform(seg_center, seg_s, seg_r, self.crop_size)
         img = cv2.warpAffine(
             img,
             trans,
@@ -88,7 +95,7 @@ class FaceDataset(Dataset):
             borderValue=(0, 0, 0))
         segment = cv2.warpAffine(
             segment,
-            seg_trans,
+            trans,
             (int(self.crop_size[1]), int(self.crop_size[0])),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
@@ -115,7 +122,9 @@ class FaceDataset(Dataset):
 
         return img, (segment, depth, normal)
 
-        
+        '''
+            Only for random 2k images
+        '''
         # img = torch.rand((3, 1080, 2048))
         # segment = torch.rand((1, 1080, 2048))
         # depth = torch.rand((3, 1080, 2048))

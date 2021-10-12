@@ -18,6 +18,7 @@ import time
 import os
 from skimage.measure import compare_ssim
 import numpy as np
+import cv2
 
 
 def get_arguments():
@@ -68,6 +69,21 @@ def val(model, dataloader, epoch):
 
             print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, 1, n_iter, 0, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
 
+            '''
+                Visualization
+            '''
+            alpha = 0.15
+
+            image = images.squeeze().permute(1,2,0).cpu()
+            result = result.squeeze().permute(1,2,0).cpu()
+
+            blended = (image * alpha) + (result * (1 - alpha))
+            blended = blended.type(torch.uint8).numpy()
+
+            cv2.imshow('blended', blended)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
+
         print("avg_time: ", avg_time / n_iter)
         print("avg_l1: ", avg_l1 / n_iter)
 
@@ -81,7 +97,7 @@ def val(model, dataloader, epoch):
 
 
 def inference(root, batch_size):
-    test_dataset = FaceDataset(root, 'test')
+    test_dataset = FaceDataset(root, 'val')
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=torch.cuda.is_available())
 
     model = create_model('.')
