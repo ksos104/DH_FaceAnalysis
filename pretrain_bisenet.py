@@ -54,7 +54,7 @@ def get_arguments():
 
 #     return miou / 10
 
-def get_lr(epoch, iter, max_iter):
+def get_lr(epoch, max_epoch, iter, max_iter):
     lr0 = 1e-2
     warmup_steps = 1000
     warmup_start_lr = 1e-5
@@ -65,7 +65,7 @@ def get_lr(epoch, iter, max_iter):
     if it <= warmup_steps:
         lr = warmup_start_lr*(warmup_factor**it)
     else:
-        factor = (1-(it-warmup_steps)/(max_iter-warmup_steps))**power
+        factor = (1-(it-warmup_steps)/((max_epoch*max_iter)-warmup_steps))**power
         lr = lr0 * factor
 
     return lr
@@ -93,7 +93,7 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, m
         optimizer.zero_grad()
         loss.backward()
 
-        lr = get_lr(epoch, n_iter, max_iter)
+        lr = get_lr(epoch, n_epoch, n_iter, max_iter)
         for pg in optimizer.param_groups:
             if pg.get('lr_mul', False):
                 pg['lr'] = lr * 10
