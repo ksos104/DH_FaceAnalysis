@@ -20,6 +20,7 @@ import time
 import os
 import numpy as np
 from glob import glob
+import math
 
 NUM_CLASSES = 11
 
@@ -163,8 +164,10 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
 
     lr0 = learning_rate
     optimizer = torch.optim.SGD(model.parameters(), lr=lr0, momentum=0.9, weight_decay=5e-4)
-    train_max_iter = train_dataset.__len__()
-    val_max_iter = test_dataset.__len__()
+    train_num_imgs = train_dataset.__len__()
+    val_num_images = test_dataset.__len__()
+    train_max_iter = math.ceil(train_num_imgs / batch_size)
+    val_max_iter = math.ceil(val_num_images / batch_size)
     
     score_thres = 0.7
     n_min = batch_size * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16

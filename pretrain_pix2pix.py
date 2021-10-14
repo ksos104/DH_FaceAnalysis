@@ -18,6 +18,7 @@ import time
 import os
 from skimage.measure import compare_ssim
 import numpy as np
+import math
 
 
 # criterion = ()
@@ -136,8 +137,10 @@ def pretrain(root, batch_size, n_epoch, learning_rate):
     writer = SummaryWriter(os.path.join('logs',now))
     model = create_model(model_save_pth)
 
-    train_max_iter = train_dataset.__len__()
-    val_max_iter = test_dataset.__len__()
+    train_num_imgs = train_dataset.__len__()
+    val_num_images = test_dataset.__len__()
+    train_max_iter = math.ceil(train_num_imgs / batch_size)
+    val_max_iter = math.ceil(val_num_images / batch_size)
 
     continue_train = False
     load_iter = 0
