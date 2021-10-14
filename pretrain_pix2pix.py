@@ -39,7 +39,7 @@ def get_arguments():
     return root, batch_size, n_epoch, learning_rate
 
 
-def train(model, dataloader, epoch, n_epoch, writer):
+def train(model, dataloader, epoch, n_epoch, writer, max_iter):
     # model.train()
     Ggan_losses = 0
     Gl1_losses = 0
@@ -63,7 +63,7 @@ def train(model, dataloader, epoch, n_epoch, writer):
         Dreal_losses += loss['D_real']
         Dfake_losses += loss['D_fake']
 
-        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
+        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, n_epoch, n_iter, max_iter, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
 
     avg_loss = (Ggan_losses + Gl1_losses) / n_iter
     Ggan_avg_loss = Ggan_losses / n_iter
@@ -79,7 +79,7 @@ def train(model, dataloader, epoch, n_epoch, writer):
 
 
 
-def val(model, dataloader, epoch, n_epoch, writer):
+def val(model, dataloader, epoch, n_epoch, writer, max_iter):
     model.eval()
     with torch.no_grad():
         Ggan_losses = 0
@@ -104,7 +104,7 @@ def val(model, dataloader, epoch, n_epoch, writer):
             Dreal_losses += loss['D_real']
             Dfake_losses += loss['D_fake']
 
-            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
+            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}, G_GAN Loss: {:.4f}, G_L1 Loss: {:.4f}, D_real Loss: {:.4f}, D_fake Loss: {:.4f}'.format(epoch, n_epoch, n_iter, max_iter, loss['G_GAN']+loss['G_L1'], loss['G_GAN'], loss['G_L1'], loss['D_real'], loss['D_fake']))
 
         avg_loss = (Ggan_losses + Gl1_losses) / n_iter
         Ggan_avg_loss = Ggan_losses / n_iter
@@ -136,6 +136,9 @@ def pretrain(root, batch_size, n_epoch, learning_rate):
     writer = SummaryWriter(os.path.join('logs',now))
     model = create_model(model_save_pth)
 
+    train_max_iter = train_dataset.__len__()
+    val_max_iter = test_dataset.__len__()
+
     continue_train = False
     load_iter = 0
     epoch = 'latest'
@@ -157,8 +160,8 @@ def pretrain(root, batch_size, n_epoch, learning_rate):
     best_loss = float('inf')
     for epoch in range(epoch, n_epoch):
         model.update_learning_rate()
-        train(model, train_dataloader, epoch, n_epoch, writer=writer)
-        loss = val(model, test_dataloader, epoch, n_epoch, writer=writer)
+        train(model, train_dataloader, epoch, n_epoch, writer=writer, max_iter=train_max_iter)
+        loss = val(model, test_dataloader, epoch, n_epoch, writer=writer, max_iter=val_max_iter)
 
         if loss < best_loss:
             best_loss = loss

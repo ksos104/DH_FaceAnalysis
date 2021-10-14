@@ -54,8 +54,24 @@ def get_arguments():
 
 #     return miou / 10
 
+def get_lr(epoch, iter, max_iter):
+    lr0 = 1e-2
+    warmup_steps = 1000
+    warmup_start_lr = 1e-5
+    warmup_factor = (lr0/warmup_start_lr)**(1./warmup_steps)
+    it = (epoch * max_iter) + iter
+    power = 0.9
 
-def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses):
+    if it <= warmup_steps:
+        lr = warmup_start_lr*(warmup_factor**it)
+    else:
+        factor = (1-(it-warmup_steps)/(max_iter-warmup_steps))**power
+        lr = lr0 * factor
+
+    return lr
+
+
+def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, max_iter):
     model.train()
     LossP, Loss2, Loss3 = Losses[0], Losses[1], Losses[2]
 
@@ -76,15 +92,27 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses):
 
         optimizer.zero_grad()
         loss.backward()
+
+        lr = get_lr(epoch, n_iter, max_iter)
+        for pg in optimizer.param_groups:
+            if pg.get('lr_mul', False):
+                pg['lr'] = lr * 10
+            else:
+                pg['lr'] = lr
+        if optimizer.defaults.get('lr_mul', False):
+            optimizer.defaults['lr'] = lr * 10
+        else:
+            optimizer.defaults['lr'] = lr
+        
         optimizer.step()
 
-        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss))
+        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, max_iter, loss))
 
     avg_loss = losses / n_iter
     writer.add_scalar("Loss/train", avg_loss, epoch)
 
 
-def val(model, dataloader, epoch, n_epoch, input, writer, Losses):
+def val(model, dataloader, epoch, n_epoch, input, writer, Losses, max_iter):
     model.eval()
     LossP, Loss2, Loss3 = Losses[0], Losses[1], Losses[2]
 
@@ -104,7 +132,7 @@ def val(model, dataloader, epoch, n_epoch, input, writer, Losses):
             loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
             losses += loss
 
-            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, 0, loss))
+            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}'.format(epoch, n_epoch, n_iter, max_iter, loss))
 
         avg_loss = losses / n_iter
         writer.add_scalar("Loss/valid", avg_loss, epoch)
@@ -133,12 +161,10 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
         model = model.cuda()
     print("Model Structure: ", model, "\n\n")
 
-    lr = learning_rate
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-    def lambda_rule(epoch):
-            lr_l = 1.0 - max(0, epoch + 1 - n_epoch) / float(n_epoch + 1)
-            return lr_l
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
+    lr0 = learning_rate
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr0, momentum=0.9, weight_decay=5e-4)
+    train_max_iter = train_dataset.__len__()
+    val_max_iter = test_dataset.__len__()
     
     score_thres = 0.7
     n_min = batch_size * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16
@@ -164,10 +190,9 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
                     state[k] = v.cuda() 
 
     for epoch in range(epoch, n_epoch):
-        scheduler.step()
 
-        train(model, train_dataloader, optimizer, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3))
-        loss = val(model, test_dataloader, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3))
+        train(model, train_dataloader, optimizer, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3), max_iter=train_max_iter)
+        loss = val(model, test_dataloader, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3), max_iter=val_max_iter)
 
         if loss < best_loss:
             best_loss = loss

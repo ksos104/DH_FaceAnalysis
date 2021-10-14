@@ -43,7 +43,7 @@ label_to_color = {
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
+    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\HELEN', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
@@ -91,7 +91,7 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
 
 
 def inference(root):
-    test_dataset = FaceDataset(root, 'val')
+    test_dataset = FaceDataset(root, 'total')
     dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=torch.cuda.is_available())
 
     model = BiSeNet(n_classes=NUM_CLASSES)
@@ -100,7 +100,7 @@ def inference(root):
         model = model.cuda()
     print("Model Structure: ", model, "\n\n")
 
-    model_dir = '2021-10-06_16-52'
+    model_dir = '2021-10-12_15-18'
     model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir)
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
@@ -153,24 +153,24 @@ def inference(root):
             '''
                 Visualization
             '''
-            alpha = 0
+            # alpha = 0.5
 
 
-            seg_color = np.zeros(result_parse.shape)
-            for key in label_to_color.keys():
-                seg_color[result_parse[:,:,0] == key] = label_to_color[key]
-
-            # segments = segments.squeeze().cpu()
-            # segments = np.stack([segments, segments, segments], axis=-1)
-            # seg_color = np.zeros(segments.shape)
+            # seg_color = np.zeros(result_parse.shape)
             # for key in label_to_color.keys():
-            #     seg_color[segments[:,:,0] == key] = label_to_color[key]
+            #     seg_color[result_parse[:,:,0] == key] = label_to_color[key]
 
-            blended = (images * alpha) + (seg_color * (1 - alpha))
-            blended = blended.type(torch.uint8)
+            # # segments = segments.squeeze().cpu()
+            # # segments = np.stack([segments, segments, segments], axis=-1)
+            # # seg_color = np.zeros(segments.shape)
+            # # for key in label_to_color.keys():
+            # #     seg_color[segments[:,:,0] == key] = label_to_color[key]
 
-            plt.imshow(blended)
-            plt.show()
+            # blended = (images * alpha) + (seg_color * (1 - alpha))
+            # blended = blended.type(torch.uint8)
+
+            # plt.imshow(blended)
+            # plt.show()
 
             print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
         print("avg_time: ", avg_time / n_iter)

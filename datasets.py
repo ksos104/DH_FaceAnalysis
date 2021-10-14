@@ -57,7 +57,6 @@ class FaceDataset(Dataset):
 
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         segment = cv2.imread(segment_path, cv2.IMREAD_GRAYSCALE)
-        # depth = np.load(depth_path)
         depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
         depth = np.stack([depth,depth,depth], axis=-1)
         normal = cv2.imread(normal_path, cv2.IMREAD_COLOR)
