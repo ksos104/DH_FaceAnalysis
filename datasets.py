@@ -57,9 +57,9 @@ class FaceDataset(Dataset):
 
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         segment = cv2.imread(segment_path, cv2.IMREAD_GRAYSCALE)
-        depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
-        depth = np.stack([depth,depth,depth], axis=-1)
-        normal = cv2.imread(normal_path, cv2.IMREAD_COLOR)
+        # depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
+        # depth = np.stack([depth,depth,depth], axis=-1)
+        # normal = cv2.imread(normal_path, cv2.IMREAD_COLOR)
 
         '''
             CelebA dataset
@@ -69,9 +69,9 @@ class FaceDataset(Dataset):
             Resize to 512 x 512
         '''
         seg_h, seg_w = segment.shape
-        img = cv2.resize(img, dsize=(seg_h, seg_w))
-        depth = cv2.resize(depth, dsize=(seg_h, seg_w))
-        normal = cv2.resize(normal, dsize=(seg_h, seg_w))
+        img = cv2.resize(img, dsize=(seg_w, seg_h))
+        # depth = cv2.resize(depth, dsize=(seg_w, seg_h))
+        # normal = cv2.resize(normal, dsize=(seg_w, seg_h))
 
         h, w, _ = img.shape
         center, s = self._box2cs([0, 0, w - 1, h - 1])
@@ -99,25 +99,31 @@ class FaceDataset(Dataset):
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(0, 0, 0))
-        depth = cv2.warpAffine(
-            depth,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
-        normal = cv2.warpAffine(
-            normal,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
+        # depth = cv2.warpAffine(
+        #     depth,
+        #     trans,
+        #     (int(self.crop_size[1]), int(self.crop_size[0])),
+        #     flags=cv2.INTER_LINEAR,
+        #     borderMode=cv2.BORDER_CONSTANT,
+        #     borderValue=(0, 0, 0))
+        # normal = cv2.warpAffine(
+        #     normal,
+        #     trans,
+        #     (int(self.crop_size[1]), int(self.crop_size[0])),
+        #     flags=cv2.INTER_LINEAR,
+        #     borderMode=cv2.BORDER_CONSTANT,
+        #     borderValue=(0, 0, 0))
 
         img = torch.Tensor(img).permute(2,0,1)
         segment = torch.Tensor(segment).unsqueeze(0)
-        depth = torch.Tensor(depth).permute(2,0,1)
-        normal = torch.Tensor(normal).permute(2,0,1)
+        # depth = torch.Tensor(depth).permute(2,0,1)
+        # normal = torch.Tensor(normal).permute(2,0,1)
+
+        '''
+            LaPa has no depth and normal
+        '''
+        depth = torch.rand((3, 512, 512))
+        normal = torch.rand((1, 512, 512))
 
         return img, (segment, depth, normal)
 

@@ -1,6 +1,4 @@
 """
-    "depth_npy.png" file need to be transposed.
-
     Written by msson
     2021.08.10
 """
