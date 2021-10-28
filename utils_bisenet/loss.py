@@ -3,10 +3,90 @@
 
 
 import torch
+from torch._C import dtype
 import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
+
+# def seperate_labels(labels, n_classes=11, ignore_lb=255):
+#     labels_sep = torch.Tensor(n_classes, labels.shape[0], labels.shape[1], labels.shape[2])
+#     labels_sep = labels_sep.to(labels.device)
+
+#     for cls_idx in range(n_classes):
+#         labels_sep[cls_idx] = torch.where(labels==cls_idx, labels, torch.tensor([ignore_lb], dtype=torch.int64).to(labels.device))
+
+#     labels_sep = labels_sep.permute(1,0,2,3)
+
+#     return labels_sep
+    
+
+def get_freq_weights(labels, n_classes=11):
+    n_clsPixel = torch.Tensor(labels.shape[0], n_classes).to(labels.device)     ## n_clsPixel.shape: [8, 11]
+    freq = torch.Tensor(labels.shape[0], n_classes).to(labels.device)     ## freq.shape: [8, 11]
+    freq_w = torch.Tensor(labels.shape[0], n_classes).to(labels.device)     ## freq_w.shape: [8, 11]
+    
+    tensor0 = torch.tensor([0], dtype=torch.int64).to(labels.device)
+    tensor1 = torch.tensor([1], dtype=torch.int64).to(labels.device)
+    for cls_idx in range(n_classes):    ## labels.shape: [8, 512, 512]
+        oh_cls = torch.where(labels==cls_idx, tensor1, tensor0)
+        oh_cls = oh_cls.reshape(labels.shape[0], -1)
+        n_clsPixel[:,cls_idx] = torch.count_nonzero(oh_cls, dim=-1)
+
+        n_clsSum = torch.sum(n_clsPixel, dim=0)
+        freq[:,cls_idx] = n_clsPixel[:,cls_idx] / n_clsSum[cls_idx]
+
+    median = torch.median(freq)
+    freq = torch.where(freq==0, median, freq)
+    freq_w = median / freq
+
+    return freq_w
+
+
+def get_area_weights(labels, n_classes=11):
+    n_clsPixel = torch.Tensor(labels.shape[0], n_classes).to(labels.device)     ## n_clsPixel.shape: [8, 11]
+    occurence = torch.Tensor(labels.shape[0], n_classes).to(labels.device)      ## occurence.shape: [8, 11]
+    area = torch.Tensor(labels.shape[0], n_classes).to(labels.device)           ## area.shape: [8, 11]
+    area_w = torch.Tensor(labels.shape[0], n_classes).to(labels.device)         ## area_w.shape: [8, 11]
+
+    tensor0 = torch.tensor([0], dtype=torch.int64).to(labels.device)
+    tensor1 = torch.tensor([1], dtype=torch.int64).to(labels.device)
+    for cls_idx in range(n_classes):    ## labels.shape: [8, 512, 512]
+        oh_cls = torch.where(labels==cls_idx, tensor1, tensor0)
+        oh_cls = oh_cls.reshape(labels.shape[0], -1)
+        n_clsPixel[:,cls_idx] = torch.count_nonzero(oh_cls, dim=-1)
+
+        # n_clsSum = torch.sum(n_clsPixel, dim=0)
+        # freq[:,cls_idx] = n_clsPixel[:,cls_idx] / n_clsSum
+
+    return area_w
+
+class WCELoss(nn.Module):
+    def __init__(self, thresh, n_min, ignore_lb=255, *args, **kwargs):
+        super(WCELoss, self).__init__()
+        self.thresh = -torch.log(torch.tensor(thresh, dtype=torch.float)).cuda()
+        self.n_min = n_min
+        self.ignore_lb = ignore_lb
+        self.criteria = nn.CrossEntropyLoss(ignore_index=ignore_lb, reduction='none')
+
+    def forward(self, logits, labels):
+        '''
+            MFB or MAB loss
+        '''
+        n_classes = logits.shape[1]
+        # labels_sep = seperate_labels(labels, n_classes, ignore_lb=self.ignore_lb)
+        freq_w = get_freq_weights(labels, n_classes)
+        # area_w = get_area_weights(labels, n_classes)
+
+        loss = self.criteria(logits, labels)
+
+        cls_loss = torch.Tensor(labels.shape[0], n_classes, labels.shape[1], labels.shape[2]).to(labels.device)         ## cls_loss.shape = [8, 11, 512, 512]
+        tensor0 = torch.tensor([0.]).to(labels.device)
+        for cls_idx in range(n_classes):
+            cls_loss[:,cls_idx] = torch.where(labels==cls_idx, loss, tensor0)
+
+        result = cls_loss * (freq_w.unsqueeze(-1).unsqueeze(-1)).expand_as(cls_loss)
+        return torch.mean(result)
 
 
 class OhemCELoss(nn.Module):
@@ -20,11 +100,11 @@ class OhemCELoss(nn.Module):
     def forward(self, logits, labels):
         N, C, H, W = logits.size()
         loss = self.criteria(logits, labels).view(-1)
-        loss, _ = torch.sort(loss, descending=True)
-        if loss[self.n_min] > self.thresh:
-            loss = loss[loss>self.thresh]
-        else:
-            loss = loss[:self.n_min]
+        # loss, _ = torch.sort(loss, descending=True)
+        # if loss[self.n_min] > self.thresh:
+        #     loss = loss[loss>self.thresh]
+        # else:
+        #     loss = loss[:self.n_min]
         return torch.mean(loss)
 
 

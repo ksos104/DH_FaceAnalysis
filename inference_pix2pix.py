@@ -25,11 +25,15 @@ def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
+    parser.add_argument('--output', help='depth / normal', default='depth', dest='output')
+    parser.add_argument('--load', help='checkpoint directory name (ex. 2021-09-27_22-06)', default=None, dest='load_cp')
 
     root = parser.parse_args().root
     batch_size = parser.parse_args().batch_size
+    output = parser.parse_args().output
+    load_cp = parser.parse_args().load_cp
 
-    return root, batch_size
+    return root, batch_size, output, load_cp
 
 
 def val(model, dataloader, epoch):
@@ -45,9 +49,13 @@ def val(model, dataloader, epoch):
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                depths = infos[1].cuda()
+                depth = infos[1].cuda()
+                normal = infos[2].cuda()
 
-            inputs = {'A': images, 'B': depths}
+            if output == 'depth':
+                inputs = {'A': images, 'B': depth}
+            elif output == 'normal':
+                inputs = {'A': images, 'B': normal}
 
             model.set_input(inputs)
 
@@ -56,8 +64,8 @@ def val(model, dataloader, epoch):
             end = time.time()
             avg_time += end - start
 
-            result = torch.where(depths==0., depths, result)
-            avg_l1 += torch.nn.L1Loss()(depths, result).item()
+            result = torch.where(depth==0., depth, result)
+            avg_l1 += torch.nn.L1Loss()(depth, result).item()
 
             model.cal_losses()
             loss = model.get_current_losses()
@@ -96,8 +104,8 @@ def val(model, dataloader, epoch):
     return Ggan_avg_loss + Gl1_avg_loss
 
 
-def inference(root, batch_size):
-    test_dataset = FaceDataset(root, 'val')
+def inference(root, batch_size, output, load_cp):
+    test_dataset = FaceDataset(root, 'test')
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=torch.cuda.is_available())
 
     model = create_model('.')
@@ -119,8 +127,8 @@ def inference(root, batch_size):
 
     print("Model Structure: ", model, "\n\n")
 
-    model_dir = '2021-09-28_20-40'
-    model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir)
+    model_dir = load_cp
+    model_root = os.path.join('./pretrained', model_dir)
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
     model.netG.load_state_dict(checkpoint['modelG_state_dict'])
@@ -128,10 +136,10 @@ def inference(root, batch_size):
     model.optimizers[0].load_state_dict(checkpoint['optG_state_dict'])
     model.optimizers[1].load_state_dict(checkpoint['optD_state_dict'])
 
-    val(model, test_dataloader, epoch)
+    val(model, test_dataloader, epoch, output)
 
 
 if __name__ == '__main__':
-    root, batch_size = get_arguments()
+    root, batch_size, output, load_cp = get_arguments()
 
-    inference(root, batch_size)
+    inference(root, batch_size, output, load_cp)

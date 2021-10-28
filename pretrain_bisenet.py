@@ -9,11 +9,12 @@
     2021.09.27
 '''
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from datasets import FaceDataset
 from models.bisenet_model import BiSeNet
-from utils_bisenet.loss import OhemCELoss
+from utils_bisenet.loss import OhemCELoss, WCELoss
 
 import argparse
 import time
@@ -22,7 +23,7 @@ import numpy as np
 from glob import glob
 import math
 
-NUM_CLASSES = 11
+NUM_CLASSES = 8
 
 def get_arguments():
     parser = argparse.ArgumentParser()
@@ -57,17 +58,23 @@ def get_arguments():
 
 def get_lr(epoch, max_epoch, iter, max_iter):
     lr0 = 1e-2
-    warmup_steps = 1000
-    warmup_start_lr = 1e-5
-    warmup_factor = (lr0/warmup_start_lr)**(1./warmup_steps)
     it = (epoch * max_iter) + iter
     power = 0.9
+    
+    # warmup_steps = 1000
+    # warmup_start_lr = 1e-5
+    # warmup_factor = (lr0/warmup_start_lr)**(1./warmup_steps)
 
-    if it <= warmup_steps:
-        lr = warmup_start_lr*(warmup_factor**it)
-    else:
-        factor = (1-(it-warmup_steps)/((max_epoch*max_iter)-warmup_steps))**power
-        lr = lr0 * factor
+    # if it <= warmup_steps:
+    #     lr = warmup_start_lr*(warmup_factor**it)
+    # else:
+    #     factor = (1-(it-warmup_steps)/((max_epoch*max_iter)-warmup_steps))**power
+    #     lr = lr0 * factor
+    '''
+        No warmup
+    '''
+    factor = (1-(it/(max_epoch*max_iter)))**power
+    lr = lr0 * factor
 
     return lr
 
@@ -148,9 +155,9 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
         now = time.strftime(r'%Y-%m-%d_%H-%M',time.localtime(time.time()))
 
     train_dataset = FaceDataset(root, 'train')
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available(), num_workers=4)
     test_dataset = FaceDataset(root, 'val')
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available(), num_workers=4)
 
     model_save_pth = os.path.join('pretrained', now)
     os.makedirs(model_save_pth, exist_ok=True)
@@ -173,9 +180,12 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
     n_min = batch_size * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16
     ignore_idx = -100
 
-    LossP = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss2 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss3 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    # LossP = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    # Loss2 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    # Loss3 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    LossP = WCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    Loss2 = WCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    Loss3 = WCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
 
     epoch = 0
     best_loss = float('inf')

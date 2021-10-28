@@ -24,7 +24,7 @@ from torch.nn import functional as F
 import cv2
 import matplotlib.pyplot as plt
 
-NUM_CLASSES = 11
+NUM_CLASSES = 8
 
 label_to_color = {
     0: [128, 64,128],
@@ -43,23 +43,27 @@ label_to_color = {
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\HELEN', dest='root')
+    parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
+    parser.add_argument('--input', help='depth / rgb', default='rgb', dest='input')
+    parser.add_argument('--load', help='checkpoint directory name (ex. 2021-09-27_22-06)', default=None, dest='load')
 
     root = parser.parse_args().root
     batch_size = parser.parse_args().batch_size
     n_epoch = parser.parse_args().n_epoch
     learning_rate = parser.parse_args().learning_rate
+    input = parser.parse_args().input
+    load = parser.parse_args().load
 
-    return root, batch_size, n_epoch, learning_rate
+    return root, batch_size, n_epoch, learning_rate, input, load
 
 
 def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 512]
     # miou = np.zeros((10))
     miou = 0
-    for idx in range(1,11):              ## background 제외
+    for idx in range(NUM_CLASSES):              ## background 제외
         '''
             오른쪽 왼쪽 구분 X
         '''
@@ -87,12 +91,12 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
         # miou[idx-1] += iou
         miou += iou
 
-    return miou / 7
+    return miou / NUM_CLASSES
 
 
-def inference(root):
-    test_dataset = FaceDataset(root, 'test')
-    dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=torch.cuda.is_available())
+def inference(root, input, load):
+    test_dataset = FaceDataset(root, 'val')
+    dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=torch.cuda.is_available(), num_workers=4)
 
     model = BiSeNet(n_classes=NUM_CLASSES)
 
@@ -100,8 +104,8 @@ def inference(root):
         model = model.cuda()
     print("Model Structure: ", model, "\n\n")
 
-    model_dir = '2021-10-14_19-29'
-    model_root = os.path.join(r'C:\Users\Minseok\Desktop\DH_FaceAnalysis\pretrained', model_dir)
+    model_dir = load
+    model_root = os.path.join('./pretrained', model_dir)
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -127,7 +131,6 @@ def inference(root):
 
             import time
             start = time.time()
-            input = 'rgb'
             if input == 'depth':
                 outputs, outputs16, outputs32 = model(depths)
             elif input == 'rgb':
@@ -153,29 +156,30 @@ def inference(root):
             '''
                 Visualization
             '''
-            alpha = 0.5
+            # alpha = 0.5
 
-            seg_color = np.zeros(result_parse.shape)
-            for key in label_to_color.keys():
-                seg_color[result_parse[:,:,0] == key] = label_to_color[key]
 
-            # segments = segments.squeeze().cpu()
-            # segments = np.stack([segments, segments, segments], axis=-1)
-            # seg_color = np.zeros(segments.shape)
+            # seg_color = np.zeros(result_parse.shape)
             # for key in label_to_color.keys():
-            #     seg_color[segments[:,:,0] == key] = label_to_color[key]
+            #     seg_color[result_parse[:,:,0] == key] = label_to_color[key]
 
-            blended = (images * alpha) + (seg_color * (1 - alpha))
-            blended = blended.type(torch.uint8)
+            # # segments = segments.squeeze().cpu()
+            # # segments = np.stack([segments, segments, segments], axis=-1)
+            # # seg_color = np.zeros(segments.shape)
+            # # for key in label_to_color.keys():
+            # #     seg_color[segments[:,:,0] == key] = label_to_color[key]
 
-            plt.imshow(blended)
-            plt.show()
+            # blended = (images * alpha) + (seg_color * (1 - alpha))
+            # blended = blended.type(torch.uint8)
+
+            # plt.imshow(blended)
+            # plt.show()
 
             print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
         print("avg_time: ", avg_time / n_iter)
         print("avg_miou: ", avg_miou / n_iter)
 
 if __name__ == '__main__':
-    root, _, _, _ = get_arguments()
+    root, _, _, _, input, load = get_arguments()
 
-    inference(root)
+    inference(root, input, load)
