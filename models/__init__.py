@@ -54,7 +54,7 @@ def get_option_setter(model_name):
     return model_class.modify_commandline_options
 
 
-def create_model(model_save_pth):
+def create_model(model_save_pth, learning_rate):
     """Create a model given the option.
 
     This function warps the class CustomDatasetDataLoader.
@@ -83,7 +83,7 @@ def create_model(model_save_pth):
     init_gain = 0.02
 
     gan_mode = 'vanilla'
-    lr = 1e-3
+    lr = learning_rate
     lr_policy = 'linear'
     beta1 = 0.5
     lambda_L1 = 100

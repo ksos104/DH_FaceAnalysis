@@ -62,6 +62,11 @@ class Pix2PixModel(BaseModel):
             self.netD = networks.define_D(input_nc=kwargs['input_nc'] + kwargs['output_nc'], ndf=kwargs['ndf'], netD=kwargs['netD'],
                                           n_layers_D=kwargs['n_layers_D'], norm=kwargs['norm'], init_type=kwargs['init_type'], init_gain=kwargs['init_gain'], gpu_ids=kwargs['gpu_ids'])
 
+        if torch.cuda.is_available():
+            self.netG = self.netG.cuda()
+            if self.isTrain:
+                self.netD = self.netD.cuda()
+
         if self.isTrain:
             # define loss functions
             self.criterionGAN = networks.GANLoss(kwargs['gan_mode']).to(self.device)
