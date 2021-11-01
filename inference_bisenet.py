@@ -63,7 +63,11 @@ def get_arguments():
 def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 512]
     # miou = np.zeros((10))
     miou = 0
-    for idx in range(NUM_CLASSES):              ## background 제외
+    result = torch.where(gt==0, torch.tensor(0, dtype=torch.uint8).to(gt.device), result)
+    tensor1 = torch.Tensor([1]).to(gt.device)
+    tensor0 = torch.Tensor([0]).to(gt.device)
+
+    for idx in range(1, NUM_CLASSES):              ## background 제외
         '''
             오른쪽 왼쪽 구분 X
         '''
@@ -82,8 +86,8 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
         '''
             오른쪽 왼쪽 구분 O
         '''
-        u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
-        o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
+        u = torch.sum(torch.where((result==idx) + (gt==idx), tensor1, tensor0)).item()
+        o = torch.sum(torch.where((result==idx) * (gt==idx), tensor1, tensor0)).item()
         try:
             iou = o / u
         except:
@@ -91,7 +95,7 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 51
         # miou[idx-1] += iou
         miou += iou
 
-    return miou / NUM_CLASSES
+    return miou / (NUM_CLASSES-1)
 
 
 def inference(root, input, load):
@@ -150,7 +154,7 @@ def inference(root, input, load):
             images = images.cpu().squeeze().permute(1,2,0)
             result_parse = result_parse.cpu().squeeze().permute(1,2,0)
 
-            miou = cal_miou(result_parse[...,0], segments.squeeze().cpu())
+            miou = cal_miou(result_parse[...,0].to(segments.device), segments.squeeze())
             avg_miou += miou
 
             '''
@@ -181,5 +185,9 @@ def inference(root, input, load):
 
 if __name__ == '__main__':
     root, _, _, _, input, load = get_arguments()
+
+    # root = '/mnt/server7_hard0/msson/CelebA_LaPa'
+    # input = 'rgb'
+    # load = '2021-10-27_22-06'
 
     inference(root, input, load)

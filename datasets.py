@@ -20,10 +20,18 @@ class FaceDataset(Dataset):
         self.scale_factor = 0.25
         self.rotation_factor = 30
         
+        self.depth_root = '/mnt/server11_hard0/yoonji/DH_dataset/CelebAMask-HQ'
+
         self.imgs = os.listdir(os.path.join(self.root, self.mode, 'images'))
         self.seg_list = os.listdir(os.path.join(self.root, self.mode, 'segment8'))
-        self.depth_list = os.listdir(os.path.join(self.root, self.mode, 'depth'))
         self.normal_list = os.listdir(os.path.join(self.root, self.mode, 'normal'))
+        # self.depth_list = os.listdir(os.path.join(self.root, self.mode, 'depth'))
+        
+        '''
+            depth.npy 파일은 server11_hard0에 위치
+            아래 depth 부분도 모두 수정 필요.
+        '''
+        self.depth_list = os.listdir(os.path.join(self.depth_root, self.mode, 'depth'))
 
     def __len__(self):
         return len(self.imgs)
@@ -49,17 +57,20 @@ class FaceDataset(Dataset):
         img_path = os.path.join(self.root, self.mode, 'images', self.imgs[idx])
 
         file_name = os.path.splitext(self.imgs[idx])[0] + '.png'
-        depth_name = os.path.splitext(self.imgs[idx])[0] + '_depth.png'
         normal_name = os.path.splitext(self.imgs[idx])[0] + '_normal.png'
         segment_path = os.path.join(self.root, self.mode, 'segment8', file_name)
-        depth_path = os.path.join(self.root, self.mode, 'depth', depth_name)
         normal_path = os.path.join(self.root, self.mode, 'normal', normal_name)
+        # depth_name = os.path.splitext(self.imgs[idx])[0] + '_depth.png'
+        # depth_path = os.path.join(self.root, self.mode, 'depth', depth_name)
+        depth_name = os.path.splitext(self.imgs[idx])[0] + '_depth.npy'
+        depth_path = os.path.join(self.depth_root, self.mode, 'depth', depth_name)
 
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         segment = cv2.imread(segment_path, cv2.IMREAD_GRAYSCALE)
+        normal = cv2.imread(normal_path, cv2.IMREAD_COLOR)
         # depth = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)
         # depth = np.stack([depth,depth,depth], axis=-1)
-        normal = cv2.imread(normal_path, cv2.IMREAD_COLOR)
+        # depth = np.load(depth_path)
 
         '''
             CelebA dataset

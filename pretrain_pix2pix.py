@@ -81,7 +81,7 @@ def train(model, dataloader, epoch, n_epoch, output, writer, max_iter):
     Dreal_avg_loss = Dreal_losses / n_iter
     Dfake_avg_loss = Dfake_losses / n_iter
     
-    writer.add_scalar("Loss/train/Loss", avg_loss, epoch)
+    writer.add_scalar("Train/Loss", avg_loss, epoch)
     # writer.add_scalar("Loss/train/G_GAN", Ggan_avg_loss, epoch)
     # writer.add_scalar("Loss/train/G_L1", Gl1_avg_loss, epoch)
     # writer.add_scalar("Loss/train/D_real", Dreal_avg_loss, epoch)
@@ -126,7 +126,7 @@ def val(model, dataloader, epoch, n_epoch, output, writer, max_iter):
         Dreal_avg_loss = Dreal_losses / n_iter
         Dfake_avg_loss = Dfake_losses / n_iter
         
-        writer.add_scalar("Loss/valid/Loss", avg_loss, epoch)
+        writer.add_scalar("Valid/Loss", avg_loss, epoch)
         # writer.add_scalar("Loss/valid/G_GAN", Ggan_avg_loss, epoch)
         # writer.add_scalar("Loss/valid/G_L1", Gl1_avg_loss, epoch)
         # writer.add_scalar("Loss/valid/D_real", Dreal_avg_loss, epoch)
