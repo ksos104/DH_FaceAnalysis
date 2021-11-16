@@ -15,7 +15,7 @@ from tensorboardX import SummaryWriter
 from datasets import FaceDataset
 # from models.bisenet_model import BiSeNet
 from models.bisenet_dec_model import BiSeNet
-from utils_bisenet.loss import OhemCELoss
+from utils_bisenet.loss import OhemCELoss, WCELoss
 
 import argparse
 import time
@@ -25,7 +25,8 @@ from glob import glob
 import math
 from torch.nn import functional as F
 
-NUM_CLASSES = 8
+NUM_CLASSES = 1
+criteria = nn.L1Loss()
 
 def get_arguments():
     parser = argparse.ArgumentParser()
@@ -33,66 +34,41 @@ def get_arguments():
     parser.add_argument('--batch_size', help='Batch size (int)', default=8, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
-    parser.add_argument('--input', help='depth / rgb', default='rgb', dest='input')
     parser.add_argument('--load', help='checkpoint directory name (ex. 2021-09-27_22-06)', default=None, dest='load')
 
     root = parser.parse_args().root
     batch_size = int(parser.parse_args().batch_size)
     n_epoch = parser.parse_args().n_epoch
     learning_rate = parser.parse_args().learning_rate
-    input = parser.parse_args().input
     load = parser.parse_args().load
 
-    return root, batch_size, n_epoch, learning_rate, input, load
+    return root, batch_size, n_epoch, learning_rate, load
 
-
-def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_size, 512, 512]
-    miou = 0
-    result = torch.where(gt==0, torch.tensor(0).to(gt.device), result)
-    tensor1 = torch.Tensor([1]).to(gt.device)
-    tensor0 = torch.Tensor([0]).to(gt.device)
-
-    for idx in range(1, NUM_CLASSES):              ## background 제외
-        u = torch.sum(torch.where((result==idx) + (gt==idx), tensor1, tensor0)).item()
-        o = torch.sum(torch.where((result==idx) * (gt==idx), tensor1, tensor0)).item()
-        try:
-            iou = o / u
-        except:
-            pass
-        miou += iou
-
-    return miou / (NUM_CLASSES-1)
 
 def get_lr(epoch, max_epoch, iter, max_iter):
     lr0 = 1e-2
     it = (epoch * max_iter) + iter
     power = 0.9
-
+    
     factor = (1-(it/(max_epoch*max_iter)))**power
     lr = lr0 * factor
 
     return lr
 
 
-def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, max_iter):
+def train(model, dataloader, optimizer, epoch, n_epoch, writer, max_iter):
     model.train()
-    LossP, Loss2, Loss3 = Losses[0], Losses[1], Losses[2]
 
     losses= 0
-    avg_miou = 0
     for n_iter, (images, infos) in enumerate(dataloader):
         if torch.cuda.is_available():
             images = images.cuda()
-            segments = infos[0].long().cuda()
-            depths = infos[1].cuda()
+            segment = infos[0].long().cuda()
+            depth = infos[1].cuda()
 
-        if input == 'depth':
-            outputs, outputs16, outputs32 = model(depths)
-        elif input == 'rgb':
-            outputs, outputs16, outputs32 = model(images)
-        segments = segments.squeeze(dim=1)
-        # loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
-        loss = LossP(outputs, segments)
+        outputs, outputs16, outputs32 = model(images)
+        depth = depth.squeeze(dim=1)
+        loss = criteria(outputs, depth)
         losses += loss
 
         optimizer.zero_grad()
@@ -111,55 +87,37 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, m
         
         optimizer.step()
 
-        result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-        miou = cal_miou(result_parse, segments)
-        avg_miou += miou
-
-        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
+        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1))))
 
     avg_loss = losses / n_iter
-    avg_miou = avg_miou / n_iter
     writer.add_scalar("Train/loss", avg_loss, epoch)
-    writer.add_scalar("Train/mIoU", avg_miou, epoch)
 
 
-def val(model, dataloader, epoch, n_epoch, input, writer, Losses, max_iter):
+def val(model, dataloader, epoch, n_epoch, writer, max_iter):
     model.eval()
-    LossP, Loss2, Loss3 = Losses[0], Losses[1], Losses[2]
 
     with torch.no_grad():
         losses = 0
-        avg_miou = 0
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                segments = infos[0].long().cuda()
-                depths = infos[1].cuda()
+                segment = infos[0].long().cuda()
+                depth = infos[1].cuda()
 
-            if input == 'depth':
-                outputs, outputs16, outputs32 = model(depths)
-            elif input == 'rgb':
-                outputs, outputs16, outputs32 = model(images)
-            segments = segments.squeeze(dim=1)
-            # loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
-            loss = LossP(outputs, segments)
+            outputs, outputs16, outputs32 = model(images)
+            depth = depth.squeeze(dim=1)
+            loss = criteria(outputs, depth)
             losses += loss
             
-            result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-            miou = cal_miou(result_parse, segments)
-            avg_miou += miou
-
-            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
+            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1))))
 
         avg_loss = losses / n_iter
-        avg_miou = avg_miou / n_iter
         writer.add_scalar("Valid/loss", avg_loss, epoch)
-        writer.add_scalar("Valid/mIoU", avg_miou, epoch)
 
-    return avg_loss, avg_miou
+    return avg_loss
 
 
-def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
+def pretrain(root, batch_size, n_epoch, learning_rate, load):
     if load:
         now = load
     else:
@@ -170,7 +128,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
     test_dataset = FaceDataset(root, 'val')
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available(), num_workers=4)
 
-    model_save_pth = os.path.join('pretrained', now)
+    model_save_pth = os.path.join('trained_biseDepth', now)
     os.makedirs(model_save_pth, exist_ok=True)
 
     writer = SummaryWriter(os.path.join('logs',now))
@@ -186,21 +144,12 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
     val_num_images = test_dataset.__len__()
     train_max_iter = math.ceil(train_num_imgs / batch_size)
     val_max_iter = math.ceil(val_num_images / batch_size)
-    
-    score_thres = 0.7
-    n_min = batch_size * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16
-    ignore_idx = -100
-
-    LossP = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss2 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss3 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
 
     epoch = 0
     best_loss = float('inf')
-    best_miou = float(0)
 
     if load: 
-        last_checkpoint_path = glob(os.path.join('pretrained', now, '*'))[-1]
+        last_checkpoint_path = glob(os.path.join('trained_biseDepth', now, '*'))[-1]
         checkpoint = torch.load(last_checkpoint_path)
 
         epoch = checkpoint['epoch'] + 1
@@ -213,13 +162,16 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
 
     for epoch in range(epoch, n_epoch):
 
-        train(model, train_dataloader, optimizer, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3), max_iter=train_max_iter)
-        loss, miou = val(model, test_dataloader, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3), max_iter=val_max_iter)
+        train(model, train_dataloader, optimizer, epoch, n_epoch, writer=writer, max_iter=train_max_iter)
+        loss = val(model, test_dataloader, epoch, n_epoch, writer=writer, max_iter=val_max_iter)
 
-        if miou > best_miou:
-            best_miou = miou
-            print("Best mIoU: {:.4f}".format(best_miou))
-            file_name = '{:03d}_{:.4f}.ckpt'.format(epoch, best_miou)
+        # if loss < best_loss:
+        #     best_loss = loss
+        #     print("Best Loss: {:.4f}".format(loss))
+        if loss < best_loss:
+            best_loss = loss
+            print("Best Loss: {:.4f}".format(best_loss))
+            file_name = '{:03d}_{:.4f}.ckpt'.format(epoch, best_loss)
             torch.save(
                 {
                     'epoch': epoch,
@@ -232,8 +184,8 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
 
 
 if __name__ == '__main__':
-    root, batch_size, n_epoch, learning_rate, input, load = get_arguments()
+    root, batch_size, n_epoch, learning_rate, load = get_arguments()
 
     # root = '/mnt/server7_hard0/msson/CelebA-HQ'
 
-    pretrain(root, batch_size, n_epoch, learning_rate, input, load)
+    pretrain(root, batch_size, n_epoch, learning_rate, load)

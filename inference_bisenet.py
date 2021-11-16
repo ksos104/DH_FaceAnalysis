@@ -12,7 +12,8 @@ import torch
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from datasets import FaceDataset
-from models.bisenet_model import BiSeNet
+# from models.bisenet_model import BiSeNet
+from models.bisenet_dec_model import BiSeNet
 from utils_bisenet.loss import OhemCELoss
 
 import argparse
@@ -44,7 +45,7 @@ label_to_color = {
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
-    parser.add_argument('--batch_size', help='Batch size (int)', default=1, dest='batch_size')
+    parser.add_argument('--batch_size', help='Batch size (int)', default=8, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
     parser.add_argument('--input', help='depth / rgb', default='rgb', dest='input')
@@ -60,39 +61,19 @@ def get_arguments():
     return root, batch_size, n_epoch, learning_rate, input, load
 
 
-def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [512, 512]
-    # miou = np.zeros((10))
+def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_size, 512, 512]
     miou = 0
-    result = torch.where(gt==0, torch.tensor(0, dtype=torch.uint8).to(gt.device), result)
+    result = torch.where(gt==0, torch.tensor(0).to(gt.device), result)
     tensor1 = torch.Tensor([1]).to(gt.device)
     tensor0 = torch.Tensor([0]).to(gt.device)
 
     for idx in range(1, NUM_CLASSES):              ## background 제외
-        '''
-            오른쪽 왼쪽 구분 X
-        '''
-        # if idx == 3 or idx == 5 or idx == 9:
-        #     continue
-        # elif idx == 2 or idx == 4:
-        #     u = torch.sum(torch.where(((result==idx)+(result==idx+1)) + ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
-        #     o = torch.sum(torch.where(((result==idx)+(result==idx+1)) * ((gt==idx)+(gt==idx+1)), torch.Tensor([1]), torch.Tensor([0]))).item()
-        # elif idx == 7:
-        #     u = torch.sum(torch.where(((result==idx)+(result==idx+2)) + ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
-        #     o = torch.sum(torch.where(((result==idx)+(result==idx+2)) * ((gt==idx)+(gt==idx+2)), torch.Tensor([1]), torch.Tensor([0]))).item()
-        # else:
-        #     u = torch.sum(torch.where((result==idx) + (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
-        #     o = torch.sum(torch.where((result==idx) * (gt==idx), torch.Tensor([1]), torch.Tensor([0]))).item()
-        
-        '''
-            오른쪽 왼쪽 구분 O
-        '''
         u = torch.sum(torch.where((result==idx) + (gt==idx), tensor1, tensor0)).item()
         o = torch.sum(torch.where((result==idx) * (gt==idx), tensor1, tensor0)).item()
         try:
             iou = o / u
         except:
             pass
-        # miou[idx-1] += iou
         miou += iou
 
     return miou / (NUM_CLASSES-1)
@@ -130,38 +111,40 @@ def inference(root, input, load):
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                segments = infos[0].long().cuda()
-                depths = infos[1].cuda()
+                segment = infos[0].long().cuda()
+                depth = infos[1].cuda()
 
             import time
             start = time.time()
             if input == 'depth':
-                outputs, outputs16, outputs32 = model(depths)
+                outputs, outputs16, outputs32 = model(depth)
             elif input == 'rgb':
                 outputs, outputs16, outputs32 = model(images)
             end = time.time()
             avg_time += end - start
-            segments = segments.squeeze(dim=1)
-            loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
+            segment = segment.squeeze(dim=1)
+            # loss = LossP(outputs, segment) + Loss2(outputs16, segment) + Loss3(outputs32, segment)
+            loss = LossP(outputs, segment)
 
             '''
                 Run these lines except using random 2k images.
             '''
-            scale_parse = F.upsample(input=outputs.unsqueeze(dim=1)[0], size=(512, 512), mode='bilinear') # parsing
-            result_parse = torch.argmax(scale_parse, dim=1).squeeze()
+            # scale_parse = F.upsample(input=outputs.unsqueeze(dim=1)[0], size=(512, 512), mode='bilinear') # parsing
+            
+            result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
+            miou = cal_miou(result_parse, segment)
+            avg_miou += miou
+
+            result_parse = result_parse.squeeze()
             result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
 
             images = images.cpu().squeeze().permute(1,2,0)
             result_parse = result_parse.cpu().squeeze().permute(1,2,0)
 
-            miou = cal_miou(result_parse[...,0].to(segments.device), segments.squeeze())
-            avg_miou += miou
-
             '''
                 Visualization
             '''
             # alpha = 0.5
-
 
             # seg_color = np.zeros(result_parse.shape)
             # for key in label_to_color.keys():
@@ -186,8 +169,8 @@ def inference(root, input, load):
 if __name__ == '__main__':
     root, _, _, _, input, load = get_arguments()
 
-    # root = '/mnt/server7_hard0/msson/CelebA_LaPa'
-    # input = 'rgb'
-    # load = '2021-10-27_22-06'
+    root = '/mnt/server7_hard0/msson/CelebA-HQ'
+    input = 'rgb'
+    load = '2021-11-12_22-57'
 
     inference(root, input, load)

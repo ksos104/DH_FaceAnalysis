@@ -181,6 +181,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate, output, load_cp):
     if load_cp:
         last_checkpoint_path = glob(os.path.join('pretrained', now, '*'))[-1]
         checkpoint = torch.load(last_checkpoint_path)
+        print("Checkpoint loaded. ({})".format(last_checkpoint_path))
 
         epoch = checkpoint['epoch'] + 1
         model.netG.load_state_dict(checkpoint['modelG_state_dict'])

@@ -33,17 +33,15 @@ def get_arguments():
     parser.add_argument('--batch_size', help='Batch size (int)', default=8, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
-    parser.add_argument('--input', help='depth / rgb', default='rgb', dest='input')
     parser.add_argument('--load', help='checkpoint directory name (ex. 2021-09-27_22-06)', default=None, dest='load')
 
     root = parser.parse_args().root
     batch_size = int(parser.parse_args().batch_size)
     n_epoch = parser.parse_args().n_epoch
     learning_rate = parser.parse_args().learning_rate
-    input = parser.parse_args().input
     load = parser.parse_args().load
 
-    return root, batch_size, n_epoch, learning_rate, input, load
+    return root, batch_size, n_epoch, learning_rate, load
 
 
 def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_size, 512, 512]
@@ -74,25 +72,28 @@ def get_lr(epoch, max_epoch, iter, max_iter):
     return lr
 
 
-def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, max_iter):
+def train(model, dataloader, optimizer, epoch, n_epoch, writer, Losses, max_iter):
     model.train()
-    LossP, Loss2, Loss3 = Losses[0], Losses[1], Losses[2]
+    LossSeg, LossDepth, LossNormal = Losses[0], Losses[1], Losses[2]
 
     losses= 0
     avg_miou = 0
     for n_iter, (images, infos) in enumerate(dataloader):
         if torch.cuda.is_available():
             images = images.cuda()
-            segments = infos[0].long().cuda()
-            depths = infos[1].cuda()
+            segment = infos[0].long().cuda()
+            depth = infos[1].cuda()
+            normal = infos[2].cuda()
 
-        if input == 'depth':
-            outputs, outputs16, outputs32 = model(depths)
-        elif input == 'rgb':
-            outputs, outputs16, outputs32 = model(images)
-        segments = segments.squeeze(dim=1)
-        # loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
-        loss = LossP(outputs, segments)
+        outputs_seg, outputs_depth, outputs_normal = model(images)
+
+        segment = segment.squeeze(dim=1)
+        loss_seg = LossSeg(outputs_seg, segment)
+        depth = depth.squeeze(dim=1)
+        loss_depth = LossDepth(outputs_depth, depth)
+        loss_normal = LossNormal(outputs_normal, normal)
+
+        loss = loss_seg + loss_depth + loss_normal
         losses += loss
 
         optimizer.zero_grad()
@@ -111,8 +112,8 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, m
         
         optimizer.step()
 
-        result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-        miou = cal_miou(result_parse, segments)
+        result_parse = torch.argmax(outputs_seg, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
+        miou = cal_miou(result_parse, segment)
         avg_miou += miou
 
         print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
@@ -123,9 +124,9 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, m
     writer.add_scalar("Train/mIoU", avg_miou, epoch)
 
 
-def val(model, dataloader, epoch, n_epoch, input, writer, Losses, max_iter):
+def val(model, dataloader, epoch, n_epoch, writer, Losses, max_iter):
     model.eval()
-    LossP, Loss2, Loss3 = Losses[0], Losses[1], Losses[2]
+    LossSeg, LossDepth, LossNormal = Losses[0], Losses[1], Losses[2]
 
     with torch.no_grad():
         losses = 0
@@ -133,20 +134,23 @@ def val(model, dataloader, epoch, n_epoch, input, writer, Losses, max_iter):
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                segments = infos[0].long().cuda()
-                depths = infos[1].cuda()
+                segment = infos[0].long().cuda()
+                depth = infos[1].cuda()
+                normal = infos[2].cuda()
 
-            if input == 'depth':
-                outputs, outputs16, outputs32 = model(depths)
-            elif input == 'rgb':
-                outputs, outputs16, outputs32 = model(images)
-            segments = segments.squeeze(dim=1)
-            # loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
-            loss = LossP(outputs, segments)
+            outputs_seg, outputs_depth, outputs_normal = model(images)
+
+            segment = segment.squeeze(dim=1)
+            loss_seg = LossSeg(outputs_seg, segment)
+            depth = depth.squeeze(dim=1)
+            loss_depth = LossDepth(outputs_depth, depth)
+            loss_normal = LossNormal(outputs_normal, normal)
+
+            loss = loss_seg + loss_depth + loss_normal
             losses += loss
             
-            result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-            miou = cal_miou(result_parse, segments)
+            result_parse = torch.argmax(outputs_seg, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
+            miou = cal_miou(result_parse, segment)
             avg_miou += miou
 
             print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
@@ -159,7 +163,7 @@ def val(model, dataloader, epoch, n_epoch, input, writer, Losses, max_iter):
     return avg_loss, avg_miou
 
 
-def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
+def pretrain(root, batch_size, n_epoch, learning_rate, load):
     if load:
         now = load
     else:
@@ -191,9 +195,9 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
     n_min = batch_size * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16
     ignore_idx = -100
 
-    LossP = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss2 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss3 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    LossSeg = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
+    LossDepth = nn.L1Loss()
+    LossNormal = nn.L1Loss()
 
     epoch = 0
     best_loss = float('inf')
@@ -213,8 +217,8 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
 
     for epoch in range(epoch, n_epoch):
 
-        train(model, train_dataloader, optimizer, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3), max_iter=train_max_iter)
-        loss, miou = val(model, test_dataloader, epoch, n_epoch, input=input, writer=writer, Losses=(LossP, Loss2, Loss3), max_iter=val_max_iter)
+        train(model, train_dataloader, optimizer, epoch, n_epoch, writer=writer, Losses=(LossSeg, LossDepth, LossNormal), max_iter=train_max_iter)
+        loss, miou = val(model, test_dataloader, epoch, n_epoch, writer=writer, Losses=(LossSeg, LossDepth, LossNormal), max_iter=val_max_iter)
 
         if miou > best_miou:
             best_miou = miou
@@ -232,8 +236,8 @@ def pretrain(root, batch_size, n_epoch, learning_rate, input, load):
 
 
 if __name__ == '__main__':
-    root, batch_size, n_epoch, learning_rate, input, load = get_arguments()
+    root, batch_size, n_epoch, learning_rate, load = get_arguments()
 
     # root = '/mnt/server7_hard0/msson/CelebA-HQ'
 
-    pretrain(root, batch_size, n_epoch, learning_rate, input, load)
+    pretrain(root, batch_size, n_epoch, learning_rate, load)
