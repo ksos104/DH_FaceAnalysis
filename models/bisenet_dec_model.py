@@ -310,9 +310,9 @@ class FeatureFusionModule(nn.Module):
         return wd_params, nowd_params
 
 
-class MultiModalDistillationFeatureFusionModule(nn.Module):
-    def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(MultiModalDistillationFeatureFusionModule, self).__init__()
+class MultiModalDistillation(nn.Module):
+    def __init__(self, in_chan, out_chan, num_others, *args, **kwargs):
+        super(MultiModalDistillation, self).__init__()
         self.convblk = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
         self.conv1 = nn.Conv2d(out_chan,
                 out_chan//4,
@@ -329,54 +329,84 @@ class MultiModalDistillationFeatureFusionModule(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
-        self.convSeg = nn.Conv2d(in_chan//2, out_chan, kernel_size=1, stride=1, padding=0)
-        self.convDepth = nn.Conv2d(in_chan//2, out_chan, kernel_size=1, stride=1, padding=0)
-        self.convNormal = nn.Conv2d(in_chan//2, out_chan, kernel_size=1, stride=1, padding=0)
-        self.convOthers = [self.convSeg, self.convDepth, self.convNormal]
+        self.convOthers = []
+        for i in range(num_others):
+            self.convOthers.append(nn.Conv2d(in_chan//2, out_chan, kernel_size=1, stride=1, padding=0))
+            if torch.cuda.is_available():
+                self.convOthers[i] = self.convOthers[i].cuda()
+
+        self.init_weight()
+
+    def forward(self, fsp, fcp_target, fcp_others):
+        fcat = torch.cat([fsp, fcp_target], dim=1)
+        feat = self.convblk(fcat)
+        atten = F.avg_pool2d(feat, feat.size()[2:])
+        atten = self.conv1(atten)
+        atten = self.relu(atten)
+        atten = self.conv2(atten)
+        atten = self.sigmoid(atten)
+
+        if not self.convOthers:
+            feat_out = fcat
+            for att_idx, fcp_other in enumerate(fcp_others):
+                convOther = self.convOthers[att_idx]
+                feat_other = convOther(fcp_other)
+                feat_atten = torch.mul(feat_other, atten)
+                feat_out = feat_atten + feat_out
+        else:
+            feat_atten = torch.mul(feat, atten)
+            feat_out = feat_atten + feat
+
+        return feat_out
+
+    def init_weight(self):
+        for ly in self.children():
+            if isinstance(ly, nn.Conv2d):
+                nn.init.kaiming_normal_(ly.weight, a=1)
+                if not ly.bias is None: nn.init.constant_(ly.bias, 0)
+
+    def get_params(self):
+        wd_params, nowd_params = [], []
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
+                wd_params.append(module.weight)
+                if not module.bias is None:
+                    nowd_params.append(module.bias)
+            elif isinstance(module, nn.BatchNorm2d):
+                nowd_params += list(module.parameters())
+        return wd_params, nowd_params
+
+
+class MultiModalDistillationFeatureFusionModule(nn.Module):
+    def __init__(self, in_chan, out_chan, *args, **kwargs):
+        super(MultiModalDistillationFeatureFusionModule, self).__init__()
+        self.MMD_seg = MultiModalDistillation(in_chan, out_chan, num_others=2)
+        self.MMD_depth = MultiModalDistillation(in_chan, out_chan, num_others=2)
+        self.MMD_normal = MultiModalDistillation(in_chan, out_chan, num_others=2)
 
         self.init_weight()
 
     '''
         Add all others (3P2) (ex. segment <- depth, normal)
     '''
-    def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
-        candidates = [fcp_seg, fcp_depth, fcp_normal]
-        feat_outs = []
-        for idx, candidate in enumerate(candidates):
-            others = candidates.copy()
-            fcat = torch.cat([fsp, candidate], dim=1)
-            feat = self.convblk(fcat)
-            atten = F.avg_pool2d(feat, feat.size()[2:])
-            atten = self.conv1(atten)
-            atten = self.relu(atten)
-            atten = self.conv2(atten)
-            atten = self.sigmoid(atten)
+    # def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
+    #     feat_outs = []
+    #     feat_outs.append(self.MMD_seg(fsp, fcp_seg, [fcp_depth, fcp_normal]))
+    #     feat_outs.append(self.MMD_depth(fsp, fcp_depth, [fcp_seg, fcp_normal]))
+    #     feat_outs.append(self.MMD_normal(fsp, fcp_normal, [fcp_seg, fcp_depth]))
 
-            feat_out = fcat
-            for att_idx, other in enumerate(others):
-                if idx == att_idx: continue
-                convOther = self.convOthers[att_idx]
-                feat_other = convOther(other)
-                feat_atten = torch.mul(feat_other, atten)
-                feat_out = feat_atten + feat_out
-            feat_outs.append(feat_out)
+    #     return feat_outs
+
+    '''
+        Add specific (only segment <- depth, depth <- segment)
+    '''
+    def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
+        feat_outs = []
+        feat_outs.append(self.MMD_seg(fsp, fcp_seg, [fcp_depth]))
+        feat_outs.append(self.MMD_depth(fsp, fcp_depth, [fcp_seg]))
+        feat_outs.append(self.MMD_normal(fsp, fcp_normal, []))
 
         return feat_outs
-
-    '''
-        Add specific (ex. segment <- depth & normal <- depth & ...)
-    '''
-    # def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
-    #     fcat = torch.cat([fsp, fcp_seg, fcp_depth, fcp_normal], dim=1)
-    #     feat = self.convblk(fcat)
-    #     atten = F.avg_pool2d(feat, feat.size()[2:])
-    #     atten = self.conv1(atten)
-    #     atten = self.relu(atten)
-    #     atten = self.conv2(atten)
-    #     atten = self.sigmoid(atten)
-    #     feat_atten = torch.mul(feat, atten)
-    #     feat_out = feat_atten + feat
-    #     return feat_out
 
     def init_weight(self):
         for ly in self.children():
