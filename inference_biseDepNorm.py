@@ -108,11 +108,11 @@ def inference(root, load_root, load, NUM_CLASSES):
 if __name__ == '__main__':
     root, _, _, _, load = get_arguments()
 
-    # load_root = './trained_biseDepth'
-    # load = '2021-11-13_00-14'
-    # NUM_CLASSES = 1
-    load_root = './trained_biseNormal'
-    load = '2021-11-14_16-01'
-    NUM_CLASSES = 3
+    load_root = './trained_biseDepth'
+    load = '2021-11-13_00-14'
+    NUM_CLASSES = 1
+    # load_root = './trained_biseNormal'
+    # load = '2021-11-14_16-01'
+    # NUM_CLASSES = 3
 
     inference(root, load_root, load, NUM_CLASSES)
