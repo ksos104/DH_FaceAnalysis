@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from datasets import FaceDataset
 # from models.bisenet_model import BiSeNet
-from models.bisenet_dec_model import BiSeNet
+from models.bisenet_dec_model_old import BiSeNet
 from utils_bisenet.loss import OhemCELoss
 
 import argparse
@@ -46,7 +46,7 @@ def get_arguments():
 
 
 def inference(root, load_root, load, NUM_CLASSES):
-    test_dataset = FaceDataset(root, 'test')
+    test_dataset = FaceDataset(root, 'val')
     dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=torch.cuda.is_available(), num_workers=4)
 
     model = BiSeNet(n_classes=NUM_CLASSES)

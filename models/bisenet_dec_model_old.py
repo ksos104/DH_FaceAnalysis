@@ -263,9 +263,6 @@ class FeatureFusionModule(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.init_weight()
 
-    '''
-        original code
-    '''
     def forward(self, fsp, fcp):
         fcat = torch.cat([fsp, fcp], dim=1)
         feat = self.convblk(fcat)
@@ -428,26 +425,6 @@ class MultiModalDistillationFeatureFusionModule(nn.Module):
 
 class BiSeNet(nn.Module):
     def __init__(self, n_classes, *args, **kwargs):
-        # super(BiSeNet, self).__init__()
-        # self.cp_seg = ContextPath()
-        # self.cp_depth = ContextPath()
-        # self.cp_normal = ContextPath()
-
-        # self.sp = SpatialPath()
-
-        # self.ffm = FeatureFusionModule(256, 256)
-        # # self.ffm = FeatureFusionModule(512, 256)
-        # # self.ffm = MultiModalDistillationFeatureFusionModule(256, 256)
-
-        # self.decoder_seg = TransSpatialPath(n_classes)
-        # self.decoder_depth = TransSpatialPath(1)
-        # self.decoder_normal = TransSpatialPath(3)
-        
-        # self.init_weight()
-
-        '''
-            original code
-        '''
         super(BiSeNet, self).__init__()
         self.cp = ContextPath()
         self.sp = SpatialPath()
@@ -460,37 +437,20 @@ class BiSeNet(nn.Module):
         self.init_weight()
         
     def forward(self, x):
-        # H, W = x.size()[2:]
-        # _, feat_cp8_seg, _, _ = self.cp_seg(x)  # here return res3b1 feature
-        # _, feat_cp8_depth, _, _ = self.cp_depth(x)  # here return res3b1 feature
-        # _, feat_cp8_normal, _, _ = self.cp_normal(x)  # here return res3b1 feature
-
-        # feat_sp = self.sp(x)
-        # feat_fuses = self.ffm(feat_sp, feat_cp8_seg, feat_cp8_depth, feat_cp8_normal)
-
-        # feat_seg = self.decoder_seg(feat_fuses[0])
-        # feat_depth = self.decoder_depth(feat_fuses[1])
-        # feat_normal = self.decoder_normal(feat_fuses[2])
-
-        # return feat_seg, feat_depth, feat_normal
-
-        '''
-            original code
-        '''
         H, W = x.size()[2:]
         feat_res8, feat_cp8, feat_cp16 = self.cp(x)  # here return res3b1 feature
         # feat_sp = feat_res8  # use res3b1 feature to replace spatial path feature
         feat_sp = self.sp(x)
         feat_fuse = self.ffm(feat_sp, feat_cp8)
 
-        feat_out = self.conv_out(feat_fuse)
-        feat_out16 = self.conv_out16(feat_cp8)
-        feat_out32 = self.conv_out32(feat_cp16)
+        # feat_out = self.conv_out(feat_fuse)
+        # feat_out16 = self.conv_out16(feat_cp8)
+        # feat_out32 = self.conv_out32(feat_cp16)
 
         feat_out = self.decoder(feat_fuse)
-        feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear', align_corners=True)
-        feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear', align_corners=True)
-        return feat_out, feat_out16, feat_out32
+        # feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear', align_corners=True)
+        # feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear', align_corners=True)
+        return feat_out, None, None
 
     def init_weight(self):
         for ly in self.children():

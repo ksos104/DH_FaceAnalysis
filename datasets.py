@@ -71,8 +71,9 @@ class FaceDataset(Dataset):
         img_path = os.path.join(self.root, self.mode, 'images', self.imgs[idx])
 
         file_name = os.path.splitext(self.imgs[idx])[0] + '.png'
-        normal_name = os.path.splitext(self.imgs[idx])[0] + '_normal.png'
-        segment_path = os.path.join(self.root, self.mode, 'segment8', file_name)
+        normal_name = os.path.splitext(self.imgs[idx])[0] + '_normal.png'   
+        segment_path = os.path.join(self.root, self.mode, 'segment8', file_name)          ## segment 8 labels
+        # segment_path = os.path.join(self.root, self.mode, 'segment', file_name)             ## segment 11 labels
         normal_path = os.path.join(self.root, self.mode, 'normal', normal_name)
         depth_name = os.path.splitext(self.imgs[idx])[0] + '_depth.png'
         depth_path = os.path.join(self.root, self.mode, 'depth', depth_name)

@@ -56,7 +56,7 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_s
         try:
             iou = o / u
         except:
-            pass
+            continue
         miou += iou
 
     return miou / (NUM_CLASSES-1)

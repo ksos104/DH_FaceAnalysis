@@ -11,6 +11,7 @@
 import torch
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
+from BiSeSDN import NUM_CLASSES
 from datasets import FaceDataset
 # from models.bisenet_model import BiSeNet
 from models.bisenet_dec_model import BiSeNet
@@ -22,10 +23,11 @@ import os
 from skimage.measure import compare_ssim
 import numpy as np
 from torch.nn import functional as F
+import torch.nn as nn
 import cv2
 import matplotlib.pyplot as plt
 
-NUM_CLASSES = 8
+criteria = nn.L1Loss()
 
 label_to_color = {
     0: [128, 64,128],
@@ -41,47 +43,44 @@ label_to_color = {
     10: [ 70,130,180]
     }
 
-
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', help='Root directory path that consists of train and test directories.', default=r'D:\DH_dataset\CelebA-HQ', dest='root')
     parser.add_argument('--batch_size', help='Batch size (int)', default=8, dest='batch_size')
     parser.add_argument('--epoch', help='Number of epoch (int)', default=100, dest='n_epoch')
     parser.add_argument('--lr', help='Learning rate', default=1e-2, dest='learning_rate')
-    parser.add_argument('--input', help='depth / rgb', default='rgb', dest='input')
     parser.add_argument('--load', help='checkpoint directory name (ex. 2021-09-27_22-06)', default=None, dest='load')
 
     root = parser.parse_args().root
     batch_size = parser.parse_args().batch_size
     n_epoch = parser.parse_args().n_epoch
     learning_rate = parser.parse_args().learning_rate
-    input = parser.parse_args().input
     load = parser.parse_args().load
 
-    return root, batch_size, n_epoch, learning_rate, input, load
+    return root, batch_size, n_epoch, learning_rate, load
 
 
 def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_size, 512, 512]
     miou = 0
-    result = torch.where(gt==0, torch.tensor(0).to(gt.device), result)
+    # result = torch.where(gt==0, torch.tensor(0).to(gt.device), result)
     tensor1 = torch.Tensor([1]).to(gt.device)
     tensor0 = torch.Tensor([0]).to(gt.device)
 
-    for idx in range(1, NUM_CLASSES):              ## background 제외
+    for idx in range(NUM_CLASSES):              ## background 제외
         u = torch.sum(torch.where((result==idx) + (gt==idx), tensor1, tensor0)).item()
         o = torch.sum(torch.where((result==idx) * (gt==idx), tensor1, tensor0)).item()
         try:
             iou = o / u
         except:
-            pass
+            continue
         miou += iou
 
-    return miou / (NUM_CLASSES-1)
+    return miou / (NUM_CLASSES)
 
 
-def inference(root, input, load):
+def inference(root, batch_size, load_root, load, NUM_CLASSES):
     test_dataset = FaceDataset(root, 'val')
-    dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=torch.cuda.is_available(), num_workers=4)
+    dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=torch.cuda.is_available(), num_workers=4)
 
     model = BiSeNet(n_classes=NUM_CLASSES)
 
@@ -90,20 +89,11 @@ def inference(root, input, load):
     print("Model Structure: ", model, "\n\n")
 
     model_dir = load
-    model_root = os.path.join('./pretrained', model_dir)
+    model_root = os.path.join(load_root, model_dir)
     model_path = os.path.join(model_root, os.listdir(model_root)[-1])
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     
-    score_thres = 0.7
-    n_min = 1 * 512 * 512//16      ## batch_size * crop_size[0] * crop_size[1]//16
-    # n_min = 1 * 1080 * 2048//16      ## batch_size * crop_size[0] * crop_size[1]//16
-    ignore_idx = -100
-
-    LossP = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss2 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-    Loss3 = OhemCELoss(thresh=score_thres, n_min=n_min, ignore_lb=ignore_idx)
-
     model.eval()
     with torch.no_grad():
         avg_time = 0
@@ -113,64 +103,83 @@ def inference(root, input, load):
                 images = images.cuda()
                 segment = infos[0].long().cuda()
                 depth = infos[1].cuda()
+                normal = infos[2].cuda()
 
             import time
             start = time.time()
-            if input == 'depth':
-                outputs, outputs16, outputs32 = model(depth)
-            elif input == 'rgb':
-                outputs, outputs16, outputs32 = model(images)
+            outputs_seg, outputs_depth, outputs_normal = model(images)
             end = time.time()
             avg_time += end - start
-            segment = segment.squeeze(dim=1)
-            # loss = LossP(outputs, segment) + Loss2(outputs16, segment) + Loss3(outputs32, segment)
-            loss = LossP(outputs, segment)
+            loss = criteria(outputs_depth, depth[:,0,...])
 
             '''
                 Run these lines except using random 2k images.
             '''
-            # scale_parse = F.upsample(input=outputs.unsqueeze(dim=1)[0], size=(512, 512), mode='bilinear') # parsing
-            
-            result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
+            ## segmentation
+            segment = segment.squeeze(dim=1)
+            result_parse = torch.argmax(outputs_seg, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
             miou = cal_miou(result_parse, segment)
             avg_miou += miou
-
-            result_parse = result_parse.squeeze()
-            result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
-
-            images = images.cpu().squeeze().permute(1,2,0)
-            result_parse = result_parse.cpu().squeeze().permute(1,2,0)
 
             '''
                 Visualization
             '''
-            alpha = 0.5
+            # images = images.cpu().squeeze().permute(1,2,0)
+            # images = images.numpy()[...,::-1]
 
-            seg_color = np.zeros(result_parse.shape)
-            for key in label_to_color.keys():
-                seg_color[result_parse[:,:,0] == key] = label_to_color[key]
+            # ## segmentation
+            # alpha = 0.5
 
-            # segments = segments.squeeze().cpu()
-            # segments = np.stack([segments, segments, segments], axis=-1)
-            # seg_color = np.zeros(segments.shape)
+            # result_parse = result_parse.squeeze()
+            # result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
+            # result_parse = result_parse.cpu().squeeze().permute(1,2,0)
+
+            # seg_color = np.zeros(result_parse.shape)
             # for key in label_to_color.keys():
-            #     seg_color[segments[:,:,0] == key] = label_to_color[key]
+            #     seg_color[result_parse[:,:,0] == key] = label_to_color[key]
 
-            blended = (images * alpha) + (seg_color * (1 - alpha))
-            blended = blended.type(torch.uint8)
+            # blended = (images * alpha) + (seg_color * (1 - alpha))
+            # blended = torch.from_numpy(blended).type(torch.uint8)
 
-            plt.imshow(blended)
-            plt.show()
+            # plt.imshow(blended)
+            # plt.show()
+
+            # ## depth
+            # alpha = 0
+
+            # outputs_depth = outputs_depth.type(torch.uint8)
+            # outputs_depth = outputs_depth.cpu().squeeze(dim=0).permute(1,2,0)
+            # outputs_depth = outputs_depth.numpy()[...,::-1]
+
+            # blended = (images * alpha) + (outputs_depth * (1 - alpha))
+            # blended = torch.from_numpy(blended).type(torch.uint8)
+
+            # plt.imshow(blended)
+            # plt.show()
+
+            # ## normal
+            # alpha = 0
+
+            # outputs_normal = outputs_normal.type(torch.uint8)
+            # outputs_normal = outputs_normal.cpu().squeeze(dim=0).permute(1,2,0)
+            # outputs_normal = outputs_normal.numpy()[...,::-1]
+
+            # blended = (images * alpha) + (outputs_normal * (1 - alpha))
+            # blended = torch.from_numpy(blended).type(torch.uint8)
+
+            # plt.imshow(blended)
+            # plt.show()
 
             print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
         print("avg_time: ", avg_time / n_iter)
-        print("avg_miou: ", avg_miou / n_iter)
+        print("avg_mIoU: ", avg_miou / n_iter)
 
 if __name__ == '__main__':
-    root, _, _, _, input, load = get_arguments()
+    root, batch_size, _, _, load = get_arguments()
 
-    root = '/mnt/server7_hard0/msson/CelebA-HQ'
-    input = 'rgb'
-    load = '2021-11-12_22-57'
+    load_root = './pretrained'
+    batch_size = 40
+    load = '2021-11-18_10-21'
+    NUM_CLASSES = 8
 
-    inference(root, input, load)
+    inference(root, batch_size, load_root, load, NUM_CLASSES)
