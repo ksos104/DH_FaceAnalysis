@@ -5,3 +5,4 @@ inf_result/
 server_requirements.txt
 trained_biseDepth/
 trained_biseNormal/
+SyncBN/

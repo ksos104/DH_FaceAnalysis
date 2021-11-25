@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from datasets import FaceDataset
 # from models.bisenet_model import BiSeNet
-from models.bisenet_dec_model import BiSeNet
+from models.bisenet_dec_model_alone import BiSeNet
 from utils_bisenet.loss import OhemCELoss
 
 import argparse
@@ -46,13 +46,13 @@ def get_arguments():
     return root, batch_size, n_epoch, learning_rate, input, load
 
 
-def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_size, 512, 512]
+def cal_miou(result, gt):               ## result.shpae == gt.shape == [batch_size, 512, 512]
     miou = 0
-    result = torch.where(gt==0, torch.tensor(0).to(gt.device), result)
+    # result = torch.where(gt==0, torch.tensor(0).to(gt.device), result)
     tensor1 = torch.Tensor([1]).to(gt.device)
     tensor0 = torch.Tensor([0]).to(gt.device)
 
-    for idx in range(1, NUM_CLASSES):              ## background 제외
+    for idx in range(NUM_CLASSES):              ## background 제외
         u = torch.sum(torch.where((result==idx) + (gt==idx), tensor1, tensor0)).item()
         o = torch.sum(torch.where((result==idx) * (gt==idx), tensor1, tensor0)).item()
         try:
@@ -61,7 +61,28 @@ def cal_miou(result, gt):                ## resutl.shpae == gt.shape == [batch_s
             pass
         miou += iou
 
-    return miou / (NUM_CLASSES-1)
+    return miou / (NUM_CLASSES)
+
+    
+'''
+    전체 dataset에 대해 i와 u 합산하여 mIoU 계산
+'''
+def cal_miou_total(result, gt):                ## resutl.shpae == gt.shape == [batch_size, 512, 512]    
+    tensor1 = torch.Tensor([1]).to(gt.device)
+    tensor0 = torch.Tensor([0]).to(gt.device)
+
+    res_i = torch.zeros((NUM_CLASSES)).to(result.device)
+    res_u = torch.zeros((NUM_CLASSES)).to(result.device)
+
+    for idx in range(NUM_CLASSES):
+        u = torch.sum(torch.where((result==idx) + (gt==idx), tensor1, tensor0)).item()
+        i = torch.sum(torch.where((result==idx) * (gt==idx), tensor1, tensor0)).item()
+
+        res_i[idx] += i
+        res_u[idx] += u
+
+    return res_i, res_u
+
 
 def get_lr(epoch, max_epoch, iter, max_iter):
     lr0 = 1e-2
@@ -80,19 +101,21 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, m
 
     losses= 0
     avg_miou = 0
+    total_i = torch.zeros((NUM_CLASSES)).cuda()
+    total_u = torch.zeros((NUM_CLASSES)).cuda()
     for n_iter, (images, infos) in enumerate(dataloader):
         if torch.cuda.is_available():
             images = images.cuda()
-            segments = infos[0].long().cuda()
-            depths = infos[1].cuda()
+            segment = infos[0].long().cuda()
+            depth = infos[1].cuda()
 
         if input == 'depth':
-            outputs, outputs16, outputs32 = model(depths)
+            outputs, outputs16, outputs32 = model(depth)
         elif input == 'rgb':
             outputs, outputs16, outputs32 = model(images)
-        segments = segments.squeeze(dim=1)
-        # loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
-        loss = LossP(outputs, segments)
+        segment = segment.squeeze(dim=1)
+        # loss = LossP(outputs, segment) + Loss2(outputs16, segment) + Loss3(outputs32, segment)
+        loss = LossP(outputs, segment)
         losses += loss
 
         optimizer.zero_grad()
@@ -112,13 +135,19 @@ def train(model, dataloader, optimizer, epoch, n_epoch, input, writer, Losses, m
         optimizer.step()
 
         result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-        miou = cal_miou(result_parse, segments)
-        avg_miou += miou
+        # miou = cal_miou(result_parse, segment)
+        # avg_miou += miou
+        res_i, res_u = cal_miou_total(result_parse, segment)
+        total_i += res_i
+        total_u += res_u
 
-        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
+        # print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
+        print('[Train] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), (torch.sum(total_i / total_u).item() / NUM_CLASSES)))
 
     avg_loss = losses / n_iter
-    avg_miou = avg_miou / n_iter
+    # avg_miou = avg_miou / n_iter
+    avg_miou = torch.sum(total_i / total_u).item() / NUM_CLASSES
+
     writer.add_scalar("Train/loss", avg_loss, epoch)
     writer.add_scalar("Train/mIoU", avg_miou, epoch)
 
@@ -130,29 +159,37 @@ def val(model, dataloader, epoch, n_epoch, input, writer, Losses, max_iter):
     with torch.no_grad():
         losses = 0
         avg_miou = 0
+        total_i = torch.zeros((NUM_CLASSES)).cuda()
+        total_u = torch.zeros((NUM_CLASSES)).cuda()
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
-                segments = infos[0].long().cuda()
-                depths = infos[1].cuda()
+                segment = infos[0].long().cuda()
+                depth = infos[1].cuda()
 
             if input == 'depth':
-                outputs, outputs16, outputs32 = model(depths)
+                outputs, outputs16, outputs32 = model(depth)
             elif input == 'rgb':
                 outputs, outputs16, outputs32 = model(images)
-            segments = segments.squeeze(dim=1)
-            # loss = LossP(outputs, segments) + Loss2(outputs16, segments) + Loss3(outputs32, segments)
-            loss = LossP(outputs, segments)
+            segment = segment.squeeze(dim=1)
+            # loss = LossP(outputs, segment) + Loss2(outputs16, segment) + Loss3(outputs32, segment)
+            loss = LossP(outputs, segment)
             losses += loss
             
             result_parse = torch.argmax(outputs, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-            miou = cal_miou(result_parse, segments)
-            avg_miou += miou
+            # miou = cal_miou(result_parse, segment)
+            # avg_miou += miou
+            res_i, res_u = cal_miou_total(result_parse, segment)
+            total_i += res_i
+            total_u += res_u
 
-            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
+            # print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}[{:.4f}]'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), miou, (avg_miou/(n_iter+1))))
+            print('[Valid] Epoch: {}/{}, Iter: {}/{}, Loss: {:.4f}[{:.4f}], mIoU: {:.4f}'.format(epoch, n_epoch, n_iter, max_iter, loss, (losses/(n_iter+1)), (torch.sum(total_i / total_u).item() / NUM_CLASSES)))
 
         avg_loss = losses / n_iter
-        avg_miou = avg_miou / n_iter
+        # avg_miou = avg_miou / n_iter
+        avg_miou = torch.sum(total_i / total_u).item() / NUM_CLASSES
+
         writer.add_scalar("Valid/loss", avg_loss, epoch)
         writer.add_scalar("Valid/mIoU", avg_miou, epoch)
 

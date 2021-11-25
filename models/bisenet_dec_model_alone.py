@@ -7,11 +7,9 @@ from torch.functional import norm
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-import numpy as np
 
 from models.resnet import Resnet18
 # from modules.bn import InPlaceABNSync as BatchNorm2d
-from models.depth_decoder import DepthDecoder
 
 
 class ConvBNReLU(nn.Module):
@@ -145,16 +143,13 @@ class ContextPath(nn.Module):
         feat32_sum = feat32_arm + avg_up
         feat32_up = F.interpolate(feat32_sum, (H16, W16), mode='nearest')
         feat32_up = self.conv_head32(feat32_up)
-        # feat32_sum = self.conv_head32(feat32_sum)
 
         feat16_arm = self.arm16(feat16)
         feat16_sum = feat16_arm + feat32_up
         feat16_up = F.interpolate(feat16_sum, (H8, W8), mode='nearest')
         feat16_up = self.conv_head16(feat16_up)
-        # feat16_sum = self.conv_head16(feat16_sum)
 
         return feat8, feat16_up, feat32_up  # x8, x8, x16
-        # return feat8, feat16_up, feat16_sum, feat32_sum  # x8, x8, x16, x32
 
     def init_weight(self):
         for ly in self.children():
@@ -274,136 +269,6 @@ class FeatureFusionModule(nn.Module):
         feat_atten = torch.mul(feat, atten)
         feat_out = feat_atten + feat
         return feat_out
-    '''
-        1 sp and 3 cp
-    '''
-    # def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
-    #     fcat = torch.cat([fsp, fcp_seg, fcp_depth, fcp_normal], dim=1)
-    #     feat = self.convblk(fcat)
-    #     atten = F.avg_pool2d(feat, feat.size()[2:])
-    #     atten = self.conv1(atten)
-    #     atten = self.relu(atten)
-    #     atten = self.conv2(atten)
-    #     atten = self.sigmoid(atten)
-    #     feat_atten = torch.mul(feat, atten)
-    #     feat_out = feat_atten + feat
-    #     return feat_out
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None: nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class MultiModalDistillation(nn.Module):
-    def __init__(self, in_chan, out_chan, num_others, *args, **kwargs):
-        super(MultiModalDistillation, self).__init__()
-        self.convblk = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
-        self.conv1 = nn.Conv2d(out_chan,
-                out_chan//4,
-                kernel_size = 1,
-                stride = 1,
-                padding = 0,
-                bias = False)
-        self.conv2 = nn.Conv2d(out_chan//4,
-                out_chan,
-                kernel_size = 1,
-                stride = 1,
-                padding = 0,
-                bias = False)
-        self.relu = nn.ReLU(inplace=True)
-        self.sigmoid = nn.Sigmoid()
-
-        self.convOthers = []
-        for i in range(num_others):
-            self.convOthers.append(nn.Conv2d(in_chan//2, out_chan, kernel_size=1, stride=1, padding=0))
-            if torch.cuda.is_available():
-                self.convOthers[i] = self.convOthers[i].cuda()
-
-        self.init_weight()
-
-    def forward(self, fsp, fcp_target, fcp_others):
-        fcat = torch.cat([fsp, fcp_target], dim=1)
-        feat = self.convblk(fcat)
-        atten = F.avg_pool2d(feat, feat.size()[2:])
-        atten = self.conv1(atten)
-        atten = self.relu(atten)
-        atten = self.conv2(atten)
-        atten = self.sigmoid(atten)
-
-        if not self.convOthers:
-            feat_out = fcat
-            for att_idx, fcp_other in enumerate(fcp_others):
-                convOther = self.convOthers[att_idx]
-                feat_other = convOther(fcp_other)
-                feat_atten = torch.mul(feat_other, atten)
-                feat_out = feat_atten + feat_out
-        else:
-            feat_atten = torch.mul(feat, atten)
-            feat_out = feat_atten + feat
-
-        return feat_out
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None: nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class MultiModalDistillationFeatureFusionModule(nn.Module):
-    def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(MultiModalDistillationFeatureFusionModule, self).__init__()
-        self.MMD_seg = MultiModalDistillation(in_chan, out_chan, num_others=2)
-        self.MMD_depth = MultiModalDistillation(in_chan, out_chan, num_others=2)
-        self.MMD_normal = MultiModalDistillation(in_chan, out_chan, num_others=2)
-
-        self.init_weight()
-
-    '''
-        Add all others (3P2) (ex. segment <- depth, normal)
-    '''
-    # def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
-    #     feat_outs = []
-    #     feat_outs.append(self.MMD_seg(fsp, fcp_seg, [fcp_depth, fcp_normal]))
-    #     feat_outs.append(self.MMD_depth(fsp, fcp_depth, [fcp_seg, fcp_normal]))
-    #     feat_outs.append(self.MMD_normal(fsp, fcp_normal, [fcp_seg, fcp_depth]))
-
-    #     return feat_outs
-
-    '''
-        Add specific (only segment <- depth, depth <- segment)
-    '''
-    def forward(self, fsp, fcp_seg, fcp_depth, fcp_normal):
-        feat_outs = []
-        feat_outs.append(self.MMD_seg(fsp, fcp_seg, [fcp_depth]))
-        feat_outs.append(self.MMD_depth(fsp, fcp_depth, [fcp_seg]))
-        feat_outs.append(self.MMD_normal(fsp, fcp_normal, []))
-
-        return feat_outs
 
     def init_weight(self):
         for ly in self.children():
@@ -429,13 +294,15 @@ class BiSeNet(nn.Module):
         self.cp = ContextPath()
         self.sp = SpatialPath()
         self.ffm = FeatureFusionModule(256, 256)
-        self.conv_out = BiSeNetOutput(256, 128, 64)
-        self.conv_out16 = BiSeNetOutput(128, 128, 128)
-        self.conv_out32 = BiSeNetOutput(128, 256, 256)
-        self.decoder = TransSpatialPath(n_classes)
+
+        # self.conv_out = BiSeNetOutput(256, 256, n_classes)
+        # self.conv_out16 = BiSeNetOutput(128, 64, n_classes)
+        # self.conv_out32 = BiSeNetOutput(128, 64, n_classes)
+
+        self.decoder_seg = TransSpatialPath(n_classes)
 
         self.init_weight()
-        
+
     def forward(self, x):
         H, W = x.size()[2:]
         feat_res8, feat_cp8, feat_cp16 = self.cp(x)  # here return res3b1 feature
@@ -447,10 +314,13 @@ class BiSeNet(nn.Module):
         # feat_out16 = self.conv_out16(feat_cp8)
         # feat_out32 = self.conv_out32(feat_cp16)
 
-        feat_out = self.decoder(feat_fuse)
+        # feat_out = F.interpolate(feat_out, (H, W), mode='bilinear', align_corners=True)
         # feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear', align_corners=True)
         # feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear', align_corners=True)
-        return feat_out, None, None
+        
+        feat_seg = self.decoder_seg(feat_fuse)
+
+        return feat_seg, None, None
 
     def init_weight(self):
         for ly in self.children():
