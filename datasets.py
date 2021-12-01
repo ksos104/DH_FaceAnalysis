@@ -114,36 +114,36 @@ class FaceDataset(Dataset):
             r = np.clip(np.random.randn() * rf, -rf * 2, rf * 2) \
                 if random.random() <= 0.6 else 0
 
-        trans = get_affine_transform(center, s, r, self.crop_size)
-        img = cv2.warpAffine(
-            img,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
-        segment = cv2.warpAffine(
-            segment,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            # flags=cv2.INTER_LINEAR,
-            flags=cv2.INTER_NEAREST,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
-        depth = cv2.warpAffine(
-            depth,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
-        normal = cv2.warpAffine(
-            normal,
-            trans,
-            (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0))
+            trans = get_affine_transform(center, s, r, self.crop_size)
+            img = cv2.warpAffine(
+                img,
+                trans,
+                (int(self.crop_size[1]), int(self.crop_size[0])),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0))
+            segment = cv2.warpAffine(
+                segment,
+                trans,
+                (int(self.crop_size[1]), int(self.crop_size[0])),
+                # flags=cv2.INTER_LINEAR,
+                flags=cv2.INTER_NEAREST,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0))
+            depth = cv2.warpAffine(
+                depth,
+                trans,
+                (int(self.crop_size[1]), int(self.crop_size[0])),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0))
+            normal = cv2.warpAffine(
+                normal,
+                trans,
+                (int(self.crop_size[1]), int(self.crop_size[0])),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0))
 
         img = torch.Tensor(img).permute(2,0,1)
         segment = torch.Tensor(segment).unsqueeze(0)
