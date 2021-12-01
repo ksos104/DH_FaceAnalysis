@@ -31,17 +31,25 @@ import matplotlib.pyplot as plt
 criteria = nn.L1Loss()
 
 label_to_color = {
-    0: [128, 64,128],
-    1: [244, 35,232],
-    2: [ 70, 70, 70],
-    3: [102,102,156],
-    4: [190,153,153],
-    5: [153,153,153],
-    6: [250,170, 30],
-    7: [220,220,  0],
-    8: [107,142, 35],
-    9: [152,251,152],
-    10: [ 70,130,180]
+    # 0: [128, 64,128],
+    # 1: [244, 35,232],
+    # 2: [ 70, 70, 70],
+    # 3: [102,102,156],
+    # 4: [190,153,153],
+    # 5: [153,153,153],
+    # 6: [250,170, 30],
+    # 7: [220,220,  0],
+    # 8: [107,142, 35],
+    # 9: [152,251,152],
+    # 10: [ 70,130,180]
+    0: [0, 0, 0], 
+    1: [128, 0, 0],
+    2: [0, 128, 0],
+    3: [128, 128, 0],
+    4: [0, 0, 128],
+    5: [128, 0, 128],
+    6: [0, 128, 128],
+    7: [128, 128, 128]
     }
 
 def get_arguments():
@@ -174,7 +182,7 @@ def mul_weight(outputs):
 
 
 def inference(root, batch_size, load_root, load, NUM_CLASSES):
-    test_dataset = FaceDataset(root, 'val')
+    test_dataset = FaceDataset(root, 'test')
     dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=torch.cuda.is_available(), num_workers=4)
 
     model = BiSeNet(n_classes=NUM_CLASSES)
@@ -196,6 +204,9 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
         avg_miou = 0
         total_i = torch.zeros((NUM_CLASSES)).cuda()
         total_u = torch.zeros((NUM_CLASSES)).cuda()
+
+        avg_depth_loss = 0
+        avg_normal_loss = 0
         for n_iter, (images, infos) in enumerate(dataloader):
             if torch.cuda.is_available():
                 images = images.cuda()
@@ -208,21 +219,20 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
             outputs_seg, outputs_depth, outputs_normal = model(images)
             end = time.time()
             avg_time += end - start
-            loss = criteria(outputs_depth, depth[:,0,...])
+            avg_depth_loss += criteria(outputs_depth, depth[:,0,...])
+            avg_normal_loss += criteria(outputs_normal, normal)
 
             '''
                 weight 적용
             '''
             # outputs_seg = mul_weight(outputs_seg)
 
-            '''
-                Run these lines except using random 2k images.
-            '''
             ## segmentation
             segment = segment.squeeze(dim=1)
             result_parse = torch.argmax(outputs_seg, dim=1)     ## result_parse.shape: [batch_size, 512, 512]
-            # miou = cal_miou(result_parse, segment)
-            # avg_miou += miou
+            # result_parse = segment
+            miou = cal_miou(result_parse, segment)
+            avg_miou += miou
             res_i, res_u = cal_miou_total(result_parse, segment)
             total_i += res_i
             total_u += res_u
@@ -234,7 +244,7 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
             # images = images.numpy()[...,::-1]
 
             # ## segmentation
-            # alpha = 0.5
+            # alpha = 0
 
             # result_parse = result_parse.squeeze()
             # result_parse = torch.stack([result_parse, result_parse, result_parse], dim=0).type(torch.uint8)
@@ -245,10 +255,23 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
             #     seg_color[result_parse[:,:,0] == key] = label_to_color[key]
 
             # blended = (images * alpha) + (seg_color * (1 - alpha))
+
+            # '''
+            #     SAVE RESULT IMAGE
+            # '''
+            # # save_path = os.path.join(root, 'test', 'seg_result')
+            # # os.makedirs(save_path, exist_ok=True)
+            # # save_name = 'res_seg' + str(n_iter) + '.png'
+            # # plt.imsave(os.path.join(save_path, save_name), blended/255)
+
+            # '''
+            #     SHOW RESULT IMAGE
+            # '''
             # blended = torch.from_numpy(blended).type(torch.uint8)
 
             # plt.imshow(blended)
             # plt.show()
+
 
             # ## depth
             # alpha = 0
@@ -258,6 +281,18 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
             # outputs_depth = outputs_depth.numpy()[...,::-1]
 
             # blended = (images * alpha) + (outputs_depth * (1 - alpha))
+
+            # '''
+            #     SAVE RESULT IMAGE
+            # '''
+            # # save_path = os.path.join(root, 'test', 'depth_result')
+            # # os.makedirs(save_path, exist_ok=True)
+            # # save_name = 'res_depth' + str(n_iter) + '.png'
+            # # plt.imsave(os.path.join(save_path, save_name), blended/255)
+
+            # '''
+            #     SHOW RESULT IMAGE
+            # '''
             # blended = torch.from_numpy(blended).type(torch.uint8)
 
             # plt.imshow(blended)
@@ -271,16 +306,31 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
             # outputs_normal = outputs_normal.numpy()[...,::-1]
 
             # blended = (images * alpha) + (outputs_normal * (1 - alpha))
+            # '''
+            #     SAVE RESULT IMAGE
+            # '''
+            # # save_path = os.path.join(root, 'test', 'normal_result')
+            # # os.makedirs(save_path, exist_ok=True)
+            # # save_name = 'res_normal' + str(n_iter) + '.png'
+            # # plt.imsave(os.path.join(save_path, save_name), blended/255)
+
+            # '''
+            #     SHOW RESULT IMAGE
+            # '''
             # blended = torch.from_numpy(blended).type(torch.uint8)
 
             # plt.imshow(blended)
             # plt.show()
-
-            print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
+            
+            # print('{} Iterations / Loss: {:.4f}'.format(n_iter, loss))
+            print('{} Iterations'.format(n_iter))
         print("avg_time: ", avg_time / (n_iter+1))
 
         avg_miou = torch.sum(total_i / total_u).item() / NUM_CLASSES
         print("avg_mIoU: ", avg_miou)
+        print("IoU: ", total_i / total_u)
+        print("avg_depth_loss: ", avg_depth_loss / (n_iter+1))
+        print("avg_normal_loss: ", avg_normal_loss / (n_iter+1))
 
         # print("avg_mIoU: ", avg_miou / (n_iter+1))
         # print("avg_iou: ", iou_list / n_iter)
@@ -288,10 +338,10 @@ def inference(root, batch_size, load_root, load, NUM_CLASSES):
 if __name__ == '__main__':
     root, batch_size, _, _, load = get_arguments()
 
+    # root = r'D:\DH_dataset\VirtualFace'
     load_root = './pretrained'
-    batch_size = 8
+    batch_size = 1
     load = '2021-11-18_10-21'
-    # load = '2021-11-24_11-16'
     NUM_CLASSES = 8
 
     inference(root, batch_size, load_root, load, NUM_CLASSES)

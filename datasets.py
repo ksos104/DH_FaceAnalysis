@@ -17,6 +17,7 @@ class FaceDataset(Dataset):
         self.transform = transform
         self.aspect_ratio = 1
         self.crop_size = [512, 512]
+        # self.crop_size = [1024, 1024]
         self.scale_factor = 0.25
         self.rotation_factor = 30
 
@@ -64,7 +65,7 @@ class FaceDataset(Dataset):
         # img = torch.rand((3, 1080, 2048))
         # segment = torch.rand((1, 1080, 2048))
         # depth = torch.rand((3, 1080, 2048))
-        # normal = torch.rand((1, 1080, 2048))
+        # normal = torch.rand((3, 1080, 2048))
         # return img, (segment, depth, normal)
 
 
@@ -102,7 +103,8 @@ class FaceDataset(Dataset):
         normal = cv2.resize(normal, dsize=(seg_w, seg_h))
 
         h, w, _ = img.shape
-        center, s = self._box2cs([0, 0, w - 1, h - 1])
+        # center, s = self._box2cs([0, 0, w - 1, h - 1])
+        center, s = self._box2cs([0, 0, w, h])
         r = 0
 
         if self.mode == 'train':
@@ -124,7 +126,8 @@ class FaceDataset(Dataset):
             segment,
             trans,
             (int(self.crop_size[1]), int(self.crop_size[0])),
-            flags=cv2.INTER_LINEAR,
+            # flags=cv2.INTER_LINEAR,
+            flags=cv2.INTER_NEAREST,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(0, 0, 0))
         depth = cv2.warpAffine(

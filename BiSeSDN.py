@@ -298,7 +298,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate, load):
                 model_name = model_list[0]
                 cmd = 'rm {}'.format(os.path.join(model_save_pth, model_name))
                 os.system(cmd)
-                
+
             torch.save(
                 {
                     'epoch': epoch,
@@ -313,6 +313,6 @@ def pretrain(root, batch_size, n_epoch, learning_rate, load):
 if __name__ == '__main__':
     root, batch_size, n_epoch, learning_rate, load = get_arguments()
 
-    root = '/mnt/server7_hard0/msson/CelebA-HQ'
+    # root = '/mnt/server7_hard0/msson/CelebA-HQ'
 
     pretrain(root, batch_size, n_epoch, learning_rate, load)
