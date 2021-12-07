@@ -292,13 +292,7 @@ def pretrain(root, batch_size, n_epoch, learning_rate, load):
             best_miou = miou
             print("Best mIoU: {:.4f}".format(best_miou))
             file_name = '{:03d}_{:.4f}.ckpt'.format(epoch, best_miou)
-
-            model_list = os.listdir(model_save_pth)
-            if len(model_list) > 1:
-                model_name = model_list[0]
-                cmd = 'rm {}'.format(os.path.join(model_save_pth, model_name))
-                os.system(cmd)
-
+            
             torch.save(
                 {
                     'epoch': epoch,
@@ -307,6 +301,13 @@ def pretrain(root, batch_size, n_epoch, learning_rate, load):
                 },
                 os.path.join(model_save_pth, file_name)
             )
+
+            model_list = os.listdir(model_save_pth)
+            if len(model_list) > 0:
+                model_name = model_list[0]
+                cmd = 'rm {}'.format(os.path.join(model_save_pth, model_name))
+                os.system(cmd)
+
     writer.close()
 
 
